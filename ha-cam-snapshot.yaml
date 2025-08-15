@@ -166,7 +166,7 @@ blueprint:
 
 # ================= Variables =================
 variables:
-  # Eingaben
+  # ---- Direkt aus Inputs (KEIN Template hier) ----
   notify: !input notify
   notification_delivery: !input notification_delivery
   preview_mode: !input preview_mode
@@ -189,8 +189,9 @@ variables:
 
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
+  notify_devices: !input notify_device   # <— neu: als eigene Variable verfügbar
 
-  # Abgeleitet
+  # ---- Abgeleitete Variablen (Jinja erlaubt, aber OHNE !input im Template) ----
   snapshot_access_file_path: "{{ file_path | replace('/config/www','/local') | replace('/media','/media/local') }}"
   label: "Motion detected"
 
@@ -206,12 +207,10 @@ variables:
   camera: "{{ (camera_entities_list[0].replace('camera.', '').replace('_', ' ') | title) if camera_entities_list|length > 0 else 'Camera' }}"
   tag: "{{ (camera_entity or 'camera.unknown') ~ now().timestamp()|int }}"
 
+  # ---- FIXED: device_name_map ohne !input im Template ----
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
-    {% for device in (states|map(attribute='entity_id')|list) %}
-      {# nur Namen der gewählten Geräte aus notify_device ziehen #}
-    {% endfor %}
-    {% for dev in (iif(is_list(!input notify_device), !input notify_device, [])) %}
+    {% for dev in (notify_devices or []) %}
       {% set name = device_attr(dev, 'name') %}
       {% if name %}
         {% set ns.device_names = ns.device_names + ['mobile_app_' ~ (name | slugify)] %}
