@@ -141,7 +141,16 @@ variables:
   camera_file_path: "{{ (camera_friendly | slugify) }}"
   file_path: "/media/snapshots/{{ camera_file_path }}/last_motion.jpg"
 
-  snapshot_access_file_path: "{{ file_path | replace('/config/www','/local') | replace('/media','/media/local') }}"
+  snapshot_access_file_path: >
+    {% set p = file_path %}
+    {% if p.startswith('/config/www') %}
+      {{ p | replace('/config/www', '/local') }}   # www → /local
+    {% elif p.startswith('/media') %}
+      {{ p }}                                      # media bleibt /media/…
+    {% else %}
+      {{ p }}                                      # sonst unverändert
+    {% endif %}
+
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
 
