@@ -135,7 +135,7 @@ variables:
     {% endif %}
 
   # freundlicher Name für Pfad und Push
-  camera_friendly: {{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}
+  camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
 
   # Speicherpfad (Dateisystem): /config/www/snapshot/<kamera-slug>/last_motion.jpg
   camera_file_path: {{ camera_friendly | slugify }}
