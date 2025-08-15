@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.0"
+  name: "Camera Event Notification 1.0.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
