@@ -1,6 +1,6 @@
 blueprint:
-  name: Camera Event Notification (no AI)
-  author: MF
+  name: "Camera Event Notification (no AI)"
+  author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
@@ -8,7 +8,7 @@ blueprint:
     Unterstützt dynamische/konsolidierte Zustellung, frei wählbares Ziel-Dashboard, Android/iOS-Optionen
     und optional TTS.
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/edit/main/ha-cam-snapshot.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
   input:
     # Laufbedingungen & Cooldown
