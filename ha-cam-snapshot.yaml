@@ -157,7 +157,8 @@ variables:
     {{ ns.device_names }}
 
 # ================= Meta =================
-mode: single
+mode: queued
+max: 25
 max_exceeded: silent
 
 # ================= Trigger =================
