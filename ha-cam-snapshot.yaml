@@ -139,8 +139,8 @@ variables:
   camera_file_path: "{{ camera_friendly | slugify }}"
   file_path: "/config/www/snapshot/{{ camera_file_path }}/last_motion.jpg"
 
-  # Web-Pfad (Push) → /local/terrasse/snapshot/<kamera-slug>/last_motion.jpg
-  snapshot_access_file_path: "/local/terrasse/snapshot/{{ camera_file_path }}/last_motion.jpg"
+  # Web-Pfad (Push) → /local/snapshot/<kamera-slug>/last_motion.jpg
+  snapshot_access_file_path: "/local/snapshot/{{ camera_file_path }}/last_motion.jpg"
 
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
