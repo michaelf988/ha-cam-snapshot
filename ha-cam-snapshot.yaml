@@ -1,6 +1,6 @@
 blueprint:
   name: Camera Event Notification (no AI)
-  author: MF – angepasst aus: valentinfrlch
+  author: MF
   homeassistant:
     min_version: 2024.10.0
   description: >
