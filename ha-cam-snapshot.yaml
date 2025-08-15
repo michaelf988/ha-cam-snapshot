@@ -10,53 +10,62 @@ blueprint:
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
-input:
+  input:
     # --- Pflicht / Basis ---
     camera_entities:
-      name: Camera Entities
-      description: Eine oder mehrere Kameras.
+      name: "Camera Entities"
+      description: "Eine oder mehrere Kameras."
       selector:
         entity:
           multiple: true
           filter:
             domain: camera
     trigger_state:
-      name: Trigger State
-      description: Kamera-Zustand, der das Event auslöst (z. B. recording).
-      default: recording
+      name: "Trigger State"
+      description: "Kamera-Zustand, der das Event auslöst (z. B. recording)."
+      default: "recording"
       selector:
         text:
+    motion_sensors:
+      name: "Motion Sensors (optional)"
+      description: "Binary-Sensoren als zusätzlicher Trigger."
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: binary_sensor
     notify_device:
-      name: Notify Device(s)
-      description: Zielgeräte (Home Assistant Companion App).
+      name: "Notify Device(s)"
+      description: "Zielgeräte (Home Assistant Companion App)."
       selector:
         device:
           multiple: true
           filter:
             integration: mobile_app
     notify:
-      name: Enable Notifications
+      name: "Enable Notifications"
       default: true
       selector:
         boolean:
 
-    # --- Optionen Benachrichtigung ---
+    # --- Benachrichtigungen ---
     notification_delivery:
-      name: Notification Delivery
-      description: Dynamic (sofort) oder Consolidated (kurze Sammelverzögerung).
-      default: Dynamic
+      name: "Notification Delivery"
+      description: "Dynamic (sofort) oder Consolidated (kurze Sammelverzögerung)."
+      default: "Dynamic"
       selector:
         select:
-          options: [Dynamic, Consolidated]
+          options: ["Dynamic", "Consolidated"]
     preview_mode:
-      name: Preview Mode
-      default: Snapshot
+      name: "Preview Mode"
+      default: "Snapshot"
       selector:
         select:
           options: ["Snapshot", "Live Preview"]
     delay_notification:
-      name: Notification Cooldown (seconds)
-      description: Abstand zwischen zwei Benachrichtigungen.
+      name: "Notification Cooldown (seconds)"
+      description: "Abstand zwischen zwei Benachrichtigungen."
       default: 60
       selector:
         number:
@@ -65,63 +74,63 @@ input:
           mode: box
           unit_of_measurement: seconds
     notification_time:
-      name: Time Snippet in Title (optional)
-      description: Leerlassen oder Uhrzeit-Text hinzufügen.
+      name: "Time Snippet in Title (optional)"
+      description: "Leerlassen oder Uhrzeit-Text hinzufügen."
       default: ""
       selector:
         select:
           options:
-            - label: No Time Added
+            - label: "No Time Added"
               value: ""
-            - label: 12 Hour
+            - label: "12 Hour"
               value: 'at {{ now().strftime("%I:%M %p") }}'
-            - label: 24 Hour
+            - label: "24 Hour"
               value: 'at {{ now().strftime("%H:%M") }}'
 
     # --- Pfade / Navigation ---
     file_path:
-      name: File Path for Snapshot
-      description: Speicherort des Snapshots (stabiler Dateiname).
+      name: "File Path for Snapshot"
+      description: "Speicherort des Snapshots (stabiler Dateiname)."
       default: "/media/snapshots/{{ camera_file_path }}/last_motion.jpg"
       selector:
         text:
     tap_navigate:
-      name: Tap Navigate (Dashboard Path)
+      name: "Tap Navigate (Dashboard Path)"
       default: "/lovelace/0"
       selector:
         text:
 
     # --- Android ---
     notification_sticky:
-      name: Sticky Notification (Android)
+      name: "Sticky Notification (Android)"
       default: true
       selector:
         boolean:
     notification_color:
-      name: Notification Accent Color (Android)
+      name: "Notification Accent Color (Android)"
       default: "#03a9f4"
       selector:
         text:
     notification_icon:
-      name: Status Bar Icon (Android)
+      name: "Status Bar Icon (Android)"
+      description: "MDI-Iconname, z. B. mdi:cctv"
       default: "mdi:cctv"
       selector:
-        icon:
-          placeholder: mdi:cctv
+        text:
     notification_channel:
-      name: Notification Channel (Android)
+      name: "Notification Channel (Android)"
       default: "Camera Snapshot"
       selector:
         text:
 
     # --- iOS ---
     notification_sound:
-      name: iOS Sound
+      name: "iOS Sound"
       default: "default"
       selector:
         text:
     notification_volume:
-      name: iOS Sound Volume (0..1)
+      name: "iOS Sound Volume (0..1)"
       default: 1
       selector:
         number:
@@ -129,39 +138,28 @@ input:
           max: 1
           step: 0.1
     notification_critical:
-      name: iOS Critical Alert
+      name: "iOS Critical Alert"
       default: false
       selector:
         boolean:
 
     # --- Optional TTS (Android) ---
     tts_notification:
-      name: TTS on Android
+      name: "TTS on Android"
       default: false
       selector:
         boolean:
     tts_volume:
-      name: TTS Volume Stream (Android)
-      default: notification_stream
+      name: "TTS Volume Stream (Android)"
+      default: "notification_stream"
       selector:
         select:
-          options: [notification_stream, alarm_stream, alarm_stream_max]
-
-    # --- Optional: Motion Binary-Sensoren ---
-    motion_sensors:
-      name: Motion Sensors (optional)
-      description: Binary-Sensoren als alternativer Trigger.
-      default: []
-      selector:
-        entity:
-          multiple: true
-          filter:
-            domain: binary_sensor
+          options: ["notification_stream", "alarm_stream", "alarm_stream_max"]
 
     # --- Globaler Cooldown ---
     cooldown:
-      name: Global Cooldown
-      description: Verzögerung nach Aktionsende.
+      name: "Global Cooldown"
+      description: "Verzögerung nach Aktionsende."
       default: { minutes: 10 }
       selector:
         duration: {}
@@ -192,14 +190,14 @@ variables:
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
 
-  # Abgeleitete Variablen
+  # Abgeleitet
   snapshot_access_file_path: "{{ file_path | replace('/config/www','/local') | replace('/media','/media/local') }}"
   label: "Motion detected"
 
   camera_entity: >
     {% if motion_sensors_list and not trigger.entity_id.startswith("camera") %}
-      {% set index = motion_sensors_list.index(trigger.entity_id) %}
-      {{ camera_entities_list[index] if 0 <= index < camera_entities_list|length else (camera_entities_list[0] if camera_entities_list|length>0 else '') }}
+      {% set idx = motion_sensors_list.index(trigger.entity_id) if trigger.entity_id in motion_sensors_list else 0 %}
+      {{ camera_entities_list[idx] if (camera_entities_list|length > idx) else (camera_entities_list[0] if camera_entities_list|length>0 else '') }}
     {% else %}
       {{ trigger.entity_id }}
     {% endif %}
@@ -210,11 +208,13 @@ variables:
 
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
-    {% for device_id in (iif(is_list(!input notify_device), !input notify_device, []) ) %}
-      {% set device_name = device_attr(device_id, "name") %}
-      {% if device_name %}
-        {% set sanitized_name = "mobile_app_" + device_name | slugify %}
-        {% set ns.device_names = ns.device_names + [sanitized_name] %}
+    {% for device in (states|map(attribute='entity_id')|list) %}
+      {# nur Namen der gewählten Geräte aus notify_device ziehen #}
+    {% endfor %}
+    {% for dev in (iif(is_list(!input notify_device), !input notify_device, [])) %}
+      {% set name = device_attr(dev, 'name') %}
+      {% if name %}
+        {% set ns.device_names = ns.device_names + ['mobile_app_' ~ (name | slugify)] %}
       {% endif %}
     {% endfor %}
     {{ ns.device_names }}
@@ -228,11 +228,11 @@ trigger:
   - platform: state
     entity_id: !input camera_entities
     to: !input trigger_state
-    id: camera_trigger
+    id: "camera_trigger"
   - platform: state
     entity_id: !input motion_sensors
     to: "on"
-    id: motion_sensor_trigger
+    id: "motion_sensor_trigger"
 
 # ================= Conditions =================
 condition: []
@@ -400,5 +400,4 @@ action:
                                           name: "{{ notification_sound }}"
                                           volume: "{{ notification_volume }}"
                                           critical: "{{ notification_critical }}"
-
   - delay: !input cooldown
