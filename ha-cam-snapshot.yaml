@@ -50,11 +50,11 @@ blueprint:
 
     delay_notification:
       name: "Notification Cooldown (seconds)"
-      default: 60
+      default: 15
       selector:
         number:
           min: 0
-          max: 86400
+          max: 600
           unit_of_measurement: seconds
 
     notification_time:
@@ -97,7 +97,7 @@ blueprint:
 
     cooldown:
       name: "Global Cooldown"
-      default: { minutes: 10 }
+      default: { seconds: 20 }
       selector:
         duration: {}
 
