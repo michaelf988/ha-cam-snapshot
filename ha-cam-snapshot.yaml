@@ -1,6 +1,6 @@
 blueprint:
-  name: "Camera Event Notification (no AI)"
-  author: "MF"
+  name: Camera Event Notification (no AI)
+  author: MF
   homeassistant:
     min_version: 2024.10.0
   description: >
@@ -11,8 +11,8 @@ blueprint:
 
   input:
     camera_entities:
-      name: "Camera Entities"
-      description: "Eine oder mehrere Kameras (Snapshot wird standardmäßig von der ersten erstellt)."
+      name: Camera Entities
+      description: Eine oder mehrere Kameras (Snapshot wird standardmäßig von der ersten erstellt).
       selector:
         entity:
           multiple: true
@@ -20,13 +20,13 @@ blueprint:
             domain: camera
 
     trigger_state:
-      name: "Trigger State"
-      default: "recording"
+      name: Trigger State
+      default: recording
       selector:
         text:
 
     motion_sensors:
-      name: "Motion Sensors (optional)"
+      name: Motion Sensors (optional)
       default: []
       selector:
         entity:
@@ -35,7 +35,7 @@ blueprint:
             domain: binary_sensor
 
     notify_device:
-      name: "Notify Device(s)"
+      name: Notify Device(s)
       selector:
         device:
           multiple: true
@@ -43,13 +43,13 @@ blueprint:
             integration: mobile_app
 
     notify:
-      name: "Enable Notifications"
+      name: Enable Notifications
       default: true
       selector:
         boolean:
 
     delay_notification:
-      name: "Notification Cooldown (seconds)"
+      name: Notification Cooldown (seconds)
       default: 60
       selector:
         number:
@@ -58,7 +58,7 @@ blueprint:
           unit_of_measurement: seconds
 
     notification_time:
-      name: "Time Snippet in Title (optional)"
+      name: Time Snippet in Title (optional)
       default: ""
       selector:
         select:
@@ -71,19 +71,19 @@ blueprint:
               value: 'um {{ now().strftime("%H:%M") }}'
 
     tap_navigate:
-      name: "Tap Navigate (Dashboard Path)"
-      default: "/lovelace/0"
+      name: Tap Navigate (Dashboard Path)
+      default: /lovelace/0
       selector:
         text:
 
     notification_sound:
-      name: "iOS Sound"
-      default: "default"
+      name: iOS Sound
+      default: default
       selector:
         text:
 
     notification_volume:
-      name: "iOS Sound Volume (0..1)"
+      name: iOS Sound Volume (0..1)
       default: 1
       selector:
         number:
@@ -92,13 +92,13 @@ blueprint:
           step: 0.1
 
     notification_critical:
-      name: "iOS Critical Alert"
+      name: iOS Critical Alert
       default: false
       selector:
         boolean:
 
     cooldown:
-      name: "Global Cooldown"
+      name: Global Cooldown
       default: { minutes: 10 }
       selector:
         duration: {}
@@ -135,25 +135,19 @@ variables:
     {% endif %}
 
   # freundlicher Name für Pfad und Push
-  camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
+  camera_friendly: {{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}
 
-  # Speicherpfad: nutzt den Friendly Name (ohne Sonderzeichen)
-  camera_file_path: "{{ (camera_friendly | slugify) }}"
-  file_path: "/media/snapshots/{{ camera_file_path }}/last_motion.jpg"
+  # Speicherpfad (Dateisystem): /config/www/snapshot/<kamera-slug>/last_motion.jpg
+  camera_file_path: {{ camera_friendly | slugify }}
+  file_path: /config/www/snapshot/{{ camera_file_path }}/last_motion.jpg
 
-  snapshot_access_file_path: >
-    {% set p = file_path %}
-    {% if p.startswith('/config/www') %}
-      {{ p | replace('/config/www', '/local') }}   # www → /local
-    {% elif p.startswith('/media') %}
-      {{ p }}                                      # media bleibt /media/…
-    {% else %}
-      {{ p }}                                      # sonst unverändert
-    {% endif %}
+  # Web-Pfad für die Push: /local/terrasse/snapshot/<kamera-slug>/last_motion.jpg
+  snapshot_access_file_path: /local/terrasse/snapshot/{{ camera_file_path }}/last_motion.jpg
 
-  label: "Bewegung erkannt"
-  camera: "{{ camera_friendly }}"
+  label: Bewegung erkannt
+  camera: {{ camera_friendly }}
 
+  # iOS: Dienstnamen aus Device-Namen ableiten
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for dev in (notify_devices or []) %}
@@ -173,11 +167,11 @@ trigger:
   - platform: state
     entity_id: !input camera_entities
     to: !input trigger_state
-    id: "camera_trigger"
+    id: camera_trigger
   - platform: state
     entity_id: !input motion_sensors
     to: "on"
-    id: "motion_sensor_trigger"
+    id: motion_sensor_trigger
 
 # ================= Actions =================
 action:
@@ -202,7 +196,7 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          - alias: "Notify (iOS, Snapshot Attachment)"
+          - alias: Notify (iOS, Snapshot Attachment)
             repeat:
               for_each: "{{ device_name_map }}"
               sequence:
