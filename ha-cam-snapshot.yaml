@@ -1,6 +1,6 @@
 blueprint:
-  name: Camera Event Notification (no AI)
-  author: MF
+  name: "Camera Event Notification (no AI)"
+  author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
@@ -11,8 +11,8 @@ blueprint:
 
   input:
     camera_entities:
-      name: Camera Entities
-      description: Eine oder mehrere Kameras (Snapshot wird standardmäßig von der ersten erstellt).
+      name: "Camera Entities"
+      description: "Eine oder mehrere Kameras (Snapshot wird standardmäßig von der ersten erstellt)."
       selector:
         entity:
           multiple: true
@@ -20,13 +20,13 @@ blueprint:
             domain: camera
 
     trigger_state:
-      name: Trigger State
-      default: recording
+      name: "Trigger State"
+      default: "recording"
       selector:
         text:
 
     motion_sensors:
-      name: Motion Sensors (optional)
+      name: "Motion Sensors (optional)"
       default: []
       selector:
         entity:
@@ -35,7 +35,7 @@ blueprint:
             domain: binary_sensor
 
     notify_device:
-      name: Notify Device(s)
+      name: "Notify Device(s)"
       selector:
         device:
           multiple: true
@@ -43,13 +43,13 @@ blueprint:
             integration: mobile_app
 
     notify:
-      name: Enable Notifications
+      name: "Enable Notifications"
       default: true
       selector:
         boolean:
 
     delay_notification:
-      name: Notification Cooldown (seconds)
+      name: "Notification Cooldown (seconds)"
       default: 60
       selector:
         number:
@@ -58,32 +58,30 @@ blueprint:
           unit_of_measurement: seconds
 
     notification_time:
-      name: Time Snippet in Title (optional)
+      name: "Time Snippet in Title (optional)"
       default: ""
       selector:
         select:
           options:
             - label: "No Time Added"
               value: ""
-            - label: "12 Hour"
-              value: 'um {{ now().strftime("%H:%M") }}'
-            - label: "24 Hour"
-              value: 'um {{ now().strftime("%H:%M") }}'
+            - label: "12/24 Hour (de)"
+              value: "um {{ now().strftime('%H:%M') }}"
 
     tap_navigate:
-      name: Tap Navigate (Dashboard Path)
-      default: /lovelace/0
+      name: "Tap Navigate (Dashboard Path)"
+      default: "/lovelace/0"
       selector:
         text:
 
     notification_sound:
-      name: iOS Sound
-      default: default
+      name: "iOS Sound"
+      default: "default"
       selector:
         text:
 
     notification_volume:
-      name: iOS Sound Volume (0..1)
+      name: "iOS Sound Volume (0..1)"
       default: 1
       selector:
         number:
@@ -92,13 +90,13 @@ blueprint:
           step: 0.1
 
     notification_critical:
-      name: iOS Critical Alert
+      name: "iOS Critical Alert"
       default: false
       selector:
         boolean:
 
     cooldown:
-      name: Global Cooldown
+      name: "Global Cooldown"
       default: { minutes: 10 }
       selector:
         duration: {}
@@ -118,7 +116,7 @@ variables:
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
 
-  # passende Kamera anhand Trigger bestimmen
+  # passende Kamera anhand Trigger bestimmen (Motion-Sensor index-mapped → Kamera; sonst erste)
   camera_entity_snapshot: >
     {% if trigger is defined and trigger.entity_id %}
       {% set tid = trigger.entity_id %}
@@ -135,20 +133,19 @@ variables:
     {% endif %}
 
   # freundlicher Name für Pfad und Push
-  camera_friendly: >
-    {{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}
+  camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
 
-  # Speicherpfad (Dateisystem): /config/www/snapshot/<kamera-slug>/last_motion.jpg
-  camera_file_path: {{ camera_friendly | slugify }}
-  file_path: /config/www/snapshot/{{ camera_file_path }}/last_motion.jpg
+  # Speicherpfad (Dateisystem) → /config/www/snapshot/<kamera-slug>/last_motion.jpg
+  camera_file_path: "{{ camera_friendly | slugify }}"
+  file_path: "/config/www/snapshot/{{ camera_file_path }}/last_motion.jpg"
 
-  # Web-Pfad für die Push: /local/terrasse/snapshot/<kamera-slug>/last_motion.jpg
-  snapshot_access_file_path: /local/terrasse/snapshot/{{ camera_file_path }}/last_motion.jpg
+  # Web-Pfad (Push) → /local/terrasse/snapshot/<kamera-slug>/last_motion.jpg
+  snapshot_access_file_path: "/local/terrasse/snapshot/{{ camera_file_path }}/last_motion.jpg"
 
-  label: Bewegung erkannt
-  camera: {{ camera_friendly }}
+  label: "Bewegung erkannt"
+  camera: "{{ camera_friendly }}"
 
-  # iOS: Dienstnamen aus Device-Namen ableiten
+  # iOS: Dienstnamen aus Device-Namen ableiten (mobile_app_<slug>)
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for dev in (notify_devices or []) %}
@@ -168,11 +165,11 @@ trigger:
   - platform: state
     entity_id: !input camera_entities
     to: !input trigger_state
-    id: camera_trigger
+    id: "camera_trigger"
   - platform: state
     entity_id: !input motion_sensors
     to: "on"
-    id: motion_sensor_trigger
+    id: "motion_sensor_trigger"
 
 # ================= Actions =================
 action:
@@ -186,6 +183,7 @@ action:
               {{ not this.attributes.last_triggered
                  or (now() - this.attributes.last_triggered).seconds > delay_notification }}
         then:
+          # Snapshot nur, wenn eine Kamera bestimmt werden konnte
           - choose:
               - conditions:
                   - condition: template
@@ -197,7 +195,8 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          - alias: Notify (iOS, Snapshot Attachment)
+          # iOS-Push mit Anhang
+          - alias: "Notify (iOS, Snapshot Attachment)"
             repeat:
               for_each: "{{ device_name_map }}"
               sequence:
