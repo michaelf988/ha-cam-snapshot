@@ -1,0 +1,273 @@
+# ======= Motion Snapshot Notification (ohne AI) =======
+# In automations.yaml einfügen oder über den YAML-Editor anlegen
+alias: Motion Snapshot Notification (no AI)
+description: Sendet eine Sofortbenachrichtigung mit Snapshot oder Live-Preview bei Bewegung / Aufnahmestart – ohne AI-Analyse.
+mode: single
+max_exceeded: silent
+
+# -------- Konfiguration (anpassen) --------
+variables:
+  # Kameras & Sensoren
+  camera_entities_list: 
+    - camera.deine_erste_kamera
+    # - camera.zweite_kamera
+  motion_sensors_list: []
+  trigger_state: 'recording'   # Zustand der Kamera, bei dem ausgelöst wird (z.B. 'recording')
+
+  # Benachrichtigung
+  notify_devices:              # Liste deiner Mobile App Geräte (Device-IDs)
+    - 0123456789abcdef0123456789abcdef  # Beispiel; über UI ersetzen
+    # - abcdef0123456789abcdef0123456789
+  notify: true
+  condition_notify: []         # zusätzliche Bedingungen (optional)
+  notification_delivery: 'Dynamic'   # 'Dynamic' oder 'Consolidated'
+  preview_mode: 'Snapshot'     # 'Snapshot' oder 'Live Preview'
+  notification_time: ''        # '', 'at {{ now().strftime("%I:%M %p") }}' oder 'at {{ now().strftime("%H:%M") }}'
+  delay_notification: 60       # Sekundensperre zwischen zwei Benachrichtigungen
+
+  # Pfade / Navigation
+  file_path: '/media/snapshots/{{ camera_file_path }}/last_motion.jpg'
+  tap_navigate: '/lovelace/0'
+
+  # Android-spezifisch
+  notification_sticky: true
+  notification_color: '#03a9f4'
+  notification_icon: 'mdi:cctv'
+  notification_channel: '{{ camera }} Snapshot'
+
+  # iOS-spezifisch
+  notification_sound: 'default'
+  notification_volume: 1
+  notification_critical: false
+
+  # (Optional) Text-to-Speech auf Android
+  tts_notification: false
+  tts_volume: 'notification_stream'   # 'notification_stream' | 'alarm_stream' | 'alarm_stream_max'
+  condition_notify_tts: []            # optionale Bedingungen für TTS
+
+  # Abkühlzeit am Ende (nicht Notification-Cooldown)
+  cooldown:
+    minutes: 10
+
+  # ---------- Hilfsvariablen (nicht anfassen) ----------
+  device_name_map: >
+    {% set ns = namespace(device_names=[]) %}
+    {% for device_id in notify_devices %}
+      {% set device_name = device_attr(device_id, "name") %}
+      {% set sanitized_name = "mobile_app_" + device_name | slugify  %}
+      {% set ns.device_names = ns.device_names + [sanitized_name] %}
+    {% endfor %}
+    {{ ns.device_names }}
+  label: 'Motion detected'
+  camera_entity: >
+    {% if motion_sensors_list and not trigger.entity_id.startswith("camera") %}
+      {% set index = motion_sensors_list.index(trigger.entity_id) %}
+      {{ camera_entities_list[index] }}
+    {% else %}
+      {{ trigger.entity_id }}
+    {% endif %}
+  camera: >
+    {{ camera_entities_list[0].replace("camera.", "").replace("_", " ") | title }}
+  camera_entity_snapshot: >
+    {{ camera_entities_list[0] }}
+  camera_file_path: >
+    {{ camera_entity_snapshot.replace("camera.", "")}}
+  snapshot_access_file_path: '{{ file_path | replace("/config/www","/local") | replace("/media","/media/local") }}'
+  tag: >
+    {{ camera_entity + int(as_timestamp(now()))|string }}
+
+# -------- Auslöser --------
+triggers:
+  - trigger: state
+    entity_id: '{{ camera_entities_list }}'
+    to: '{{ trigger_state }}'
+    id: 'camera_trigger'
+  - trigger: state
+    entity_id: '{{ motion_sensors_list }}'
+    to: 'on'
+    id: 'motion_sensor_trigger'
+
+# -------- Bedingungen (optional erweiterbar) --------
+condition:
+  - condition: and
+    conditions: []
+
+# -------- Aktionen --------
+action:
+  # Nur benachrichtigen, wenn aktiviert, Bedingungen erfüllt und Cooldown eingehalten
+  - if:
+      - condition: template
+        value_template: '{{ notify }}'
+    then:
+      - if:
+          - condition: template
+            value_template: >
+              {% set cond = true %}
+              {% for c in condition_notify %}
+                {% set cond = cond and c %}
+              {% endfor %}
+              {{ cond }}
+        then:
+          - if:
+              - condition: template
+                value_template: >
+                  {{ not this.attributes.last_triggered or (now() - this.attributes.last_triggered).seconds > delay_notification }}
+            then:
+              - choose:
+                  # ---- Dynamische Zustellung ----
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ notification_delivery == 'Dynamic' }}"
+                    sequence:
+                      - choose:
+                          # Snapshot-Modus
+                          - conditions:
+                              - condition: template
+                                value_template: "{{ preview_mode == 'Snapshot' }}"
+                            sequence:
+                              # Snapshot NUR von der ersten Kamera speichern (konstanter Dateiname)
+                              - service: camera.snapshot
+                                target:
+                                  entity_id: '{{ camera_entity_snapshot }}'
+                                data:
+                                  filename: '{{ file_path }}'
+
+                              - alias: "Sende Sofort-Benachrichtigung mit Snapshot"
+                                repeat:
+                                  for_each: '{{ device_name_map }}'
+                                  sequence:
+                                    - action: "notify.{{ repeat.item }}"
+                                      data:
+                                        title: "{{ label }} {{ notification_time }}"
+                                        message: "{{ camera }} hat eine Bewegung erkannt."
+                                        data:
+                                          url: '{{ tap_navigate }}'          # iOS
+                                          clickAction: '{{ tap_navigate }}'  # Android
+                                          tag: "{{ tag }}"
+                                          group: '{{ notification_channel }}'
+                                          alert_once: true
+                                          ttl: 0
+                                          priority: high
+                                          # Android
+                                          channel: '{{ notification_channel }}'
+                                          color: '{{ notification_color }}'
+                                          notification_icon: '{{ notification_icon }}'
+                                          sticky: '{{ notification_sticky }}'
+                                          image: '{{ snapshot_access_file_path }}'
+                                          # iOS
+                                          attachment:
+                                            url: '{{ snapshot_access_file_path }}'
+                                            content_type: JPEG
+                                          push:
+                                            interruption-level: 'active'
+                                            sound:
+                                              name: '{{ notification_sound }}'
+                                              volume: '{{ notification_volume }}'
+                                              critical: '{{ notification_critical }}'
+
+                          # Live Preview
+                          - conditions:
+                              - condition: template
+                                value_template: "{{ preview_mode == 'Live Preview' }}"
+                            sequence:
+                              - alias: "Sende Live-Vorschau"
+                                repeat:
+                                  for_each: '{{ device_name_map }}'
+                                  sequence:
+                                    - action: "notify.{{ repeat.item }}"
+                                      data:
+                                        title: "{{ label }} {{ notification_time }}"
+                                        message: "{{ camera }} hat eine Bewegung erkannt."
+                                        data:
+                                          entity_id: "{{ camera_entity }}"
+                                          url: '{{ tap_navigate }}'
+                                          tag: "{{ tag }}"
+                                          group: '{{ notification_channel }}'
+                                          alert_once: true
+                                          ttl: 0
+                                          priority: high
+                                          push:
+                                            interruption-level: 'active'
+                                            sound:
+                                              name: '{{ notification_sound }}'
+                                              volume: '{{ notification_volume }}'
+                                              critical: '{{ notification_critical }}'
+
+                  # ---- Konsolidierte Zustellung (nur eine verzögerte Benachrichtigung) ----
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ notification_delivery == 'Consolidated' }}"
+                    sequence:
+                      - choose:
+                          - conditions:
+                              - condition: template
+                                value_template: "{{ preview_mode == 'Snapshot' }}"
+                            sequence:
+                              - service: camera.snapshot
+                                target:
+                                  entity_id: '{{ camera_entity_snapshot }}'
+                                data:
+                                  filename: '{{ file_path }}'
+                      - delay: "00:00:05"  # kurze Sammel-Verzögerung
+                      - alias: "Sende konsolidierte Benachrichtigung"
+                        repeat:
+                          for_each: '{{ device_name_map }}'
+                          sequence:
+                            - action: "notify.{{ repeat.item }}"
+                              data:
+                                title: "{{ label }} {{ notification_time }}"
+                                message: "{{ camera }} hat eine Bewegung erkannt."
+                                data:
+                                  url: '{{ tap_navigate }}'
+                                  clickAction: '{{ tap_navigate }}'
+                                  tag: "{{ tag }}"
+                                  group: '{{ notification_channel }}'
+                                  alert_once: true
+                                  ttl: 0
+                                  priority: high
+                                  channel: '{{ notification_channel }}'
+                                  color: '{{ notification_color }}'
+                                  notification_icon: '{{ notification_icon }}'
+                                  sticky: '{{ notification_sticky }}'
+                                  {% raw %}{% if preview_mode == 'Snapshot' %}{% endraw %}
+                                  image: '{{ snapshot_access_file_path }}'
+                                  attachment:
+                                    url: '{{ snapshot_access_file_path }}'
+                                    content_type: JPEG
+                                  {% raw %}{% endif %}{% endraw %}
+                                  push:
+                                    interruption-level: 'active'
+                                    sound:
+                                      name: '{{ notification_sound }}'
+                                      volume: '{{ notification_volume }}'
+                                      critical: '{{ notification_critical }}'
+
+      # ---- (Optional) TTS Benachrichtigung auf Android ----
+      - if:
+          - condition: template
+            value_template: '{{ tts_notification }}'
+        then:
+          - if:
+              - condition: template
+                value_template: >
+                  {% set cond = true %}
+                  {% for c in condition_notify_tts %}
+                    {% set cond = cond and c %}
+                  {% endfor %}
+                  {{ cond }}
+            then:
+              - alias: "TTS Notification"
+                repeat:
+                  for_each: '{{ device_name_map }}'
+                  sequence:
+                    - action: "notify.{{ repeat.item }}"
+                      data:
+                        message: TTS
+                        data:
+                          ttl: 0
+                          priority: high
+                          media_stream: '{{ tts_volume }}'
+                          tts_text: "{{ camera }} hat eine Bewegung erkannt."
+
+  # Allgemeiner Cooldown am Ende (schützt vor Flut in belebten Bereichen)
+  - delay: '{{ cooldown }}'
