@@ -1,18 +1,18 @@
 blueprint:
-  name: "Camera Event Notification 1.0.0"
+  name: "Camera Event Notification 1.1.0 (iOS, AI-optional)"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
-    Kamera-Benachrichtigung für iOS: macht bei Ereignis (Kamera-Zustand ODER Bewegungsmelder)
-    einen Snapshot und sendet ihn als Anhang per Push – nutzt den friendly_name der Kamera.
+    iOS-Kamera-Benachrichtigung mit Snapshot, optionaler Live-Analyse (llmvision.stream_analyzer),
+    automatischem Erinnern (llmvision.remember) und Update der Push via Tag. Nutzt den friendly_name der Kamera.
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
   input:
     camera_entities:
       name: "Camera Entities"
-      description: "Eine oder mehrere Kameras (Snapshot wird standardmäßig von der ersten erstellt)."
+      description: "Eine oder mehrere Kameras (Snapshot standardmäßig von der ersten)."
       selector:
         entity:
           multiple: true
@@ -69,8 +69,8 @@ blueprint:
               value: "um {{ now().strftime('%H:%M') }}"
 
     tap_navigate:
-      name: "Tap Navigate (Dashboard Path)"
-      default: "/lovelace/0"
+      name: "Tap / Click Action Path"
+      default: "/lovelace/test"
       selector:
         text:
 
@@ -101,6 +101,101 @@ blueprint:
       selector:
         duration: {}
 
+    # ---------- AI / Analyzer ----------
+    ai_enable:
+      name: "Enable AI Stream Analyzer"
+      default: false
+      selector:
+        boolean:
+    ai_condition_template:
+      name: "AI Run Condition (template)"
+      description: "Jinja-Template, das true/false ergibt (z.B. states('sun.sun')=='below_horizon')."
+      default: "true"
+      selector:
+        text:
+    ai_remember_enable:
+      name: "Enable Remember Step"
+      description: "llmvision.remember immer ausführen; nutzt Ergebnis des Analyzers falls vorhanden."
+      default: true
+      selector:
+        boolean:
+    ai_duration:
+      name: "AI: duration (s)"
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: box
+    ai_max_frames:
+      name: "AI: max_frames"
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    ai_target_width:
+      name: "AI: target_width"
+      default: 1280
+      selector:
+        number:
+          min: 320
+          max: 3840
+          step: 10
+          mode: box
+    ai_max_tokens:
+      name: "AI: max_tokens"
+      default: 100
+      selector:
+        number:
+          min: 32
+          max: 1024
+          step: 1
+          mode: box
+    ai_provider:
+      name: "AI: provider"
+      default: "01JY7J0D1883A14SY3ZW2HRQFD"
+      selector:
+        text:
+    ai_model:
+      name: "AI: model"
+      default: "gpt-4o-mini"
+      selector:
+        text:
+    ai_message:
+      name: "AI: message (prompt)"
+      default: >
+        Beschreibe die Ereignisse, als würdest du sie live beobachten.
+        Konzentriere dich ausschließlich auf bewegliche Objekte (Personen und Fahrzeuge) und deren Bewegungen oder Interaktionen.
+        Ignoriere statische Elemente und die Umgebung vollständig.
+        Verwende kurze, prägnante Sätze.
+        Erwähne nicht, dass etwas statisch ist oder dass keine Bewegung sichtbar ist – außer es gibt wirklich keine erkennbaren Menschen oder Objekte, dann sage nur -Kein Mensch oder Objekt erkennbar-
+      selector:
+        text:
+          multiline: true
+
+    # ---------- Actionable Notifications (bis zu 3 JSON-Objekte) ----------
+    action1_json:
+      name: "Action #1 (JSON)"
+      description: 'z.B.: {"action":"OPEN","title":"Öffnen"}'
+      default: ""
+      selector:
+        text:
+          multiline: false
+    action2_json:
+      name: "Action #2 (JSON)"
+      default: ""
+      selector:
+        text:
+          multiline: false
+    action3_json:
+      name: "Action #3 (JSON)"
+      default: ""
+      selector:
+        text:
+          multiline: false
+
 # ================= Variables =================
 variables:
   notify: !input notify
@@ -116,7 +211,32 @@ variables:
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
 
-  # passende Kamera anhand Trigger bestimmen (Motion-Sensor index-mapped → Kamera; sonst erste)
+  # AI inputs
+  ai_enable: !input ai_enable
+  ai_condition_template: !input ai_condition_template
+  ai_remember_enable: !input ai_remember_enable
+  ai_duration: !input ai_duration
+  ai_max_frames: !input ai_max_frames
+  ai_target_width: !input ai_target_width
+  ai_max_tokens: !input ai_max_tokens
+  ai_provider: !input ai_provider
+  ai_model: !input ai_model
+  ai_message: !input ai_message
+
+  # Actions (JSON strings -> List)
+  action1_json: !input action1_json
+  action2_json: !input action2_json
+  action3_json: !input action3_json
+  notification_actions: >
+    {% set items = [] %}
+    {% for s in [action1_json|default('')|trim, action2_json|default('')|trim, action3_json|default('')|trim] %}
+      {% if s %}
+        {% set _ = items.append( s | from_json ) %}
+      {% endif %}
+    {% endfor %}
+    {{ items }}
+
+  # passende Kamera anhand Trigger bestimmen
   camera_entity_snapshot: >
     {% if trigger is defined and trigger.entity_id %}
       {% set tid = trigger.entity_id %}
@@ -132,18 +252,16 @@ variables:
       {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
     {% endif %}
 
-  # freundlicher Name für Pfad und Push
+  # Friendly Name und Pfade
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
-
-  # Speicherpfad (Dateisystem) → /config/www/snapshot/<kamera-slug>/last_motion.jpg
   camera_file_path: "{{ camera_friendly | slugify }}"
   file_path: "/config/www/snapshot/{{ camera_file_path }}/last_motion.jpg"
-
-  # Web-Pfad (Push) → /local/snapshot/<kamera-slug>/last_motion.jpg
   snapshot_access_file_path: "/local/snapshot/{{ camera_file_path }}/last_motion.jpg"
 
+  # Notification-Metadaten inkl. dynamischem Tag
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
+  notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
 
   # iOS: Dienstnamen aus Device-Namen ableiten (mobile_app_<slug>)
   device_name_map: >
@@ -184,7 +302,7 @@ action:
               {{ not this.attributes.last_triggered
                  or (now() - this.attributes.last_triggered).seconds > delay_notification }}
         then:
-          # Snapshot nur, wenn eine Kamera bestimmt werden konnte
+          # 1) Snapshot (falls Kamera bestimmt)
           - choose:
               - conditions:
                   - condition: template
@@ -196,8 +314,8 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # iOS-Push mit Anhang
-          - alias: "Notify (iOS, Snapshot Attachment)"
+          # 2) Erste Push (mit dynamischem Tag + optionalen Actions)
+          - alias: "Notify initial (iOS, Snapshot Attachment, with Tag)"
             repeat:
               for_each: "{{ device_name_map }}"
               sequence:
@@ -207,9 +325,14 @@ action:
                     message: "{{ camera }} hat eine Bewegung erkannt."
                     data:
                       url: !input tap_navigate
+                      clickAction: !input tap_navigate
+                      tag: "{{ notification_tag }}"
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
+                      {% if notification_actions|length > 0 %}
+                      actions: "{{ notification_actions }}"
+                      {% endif %}
                       push:
                         interruption-level: active
                         sound:
@@ -217,4 +340,72 @@ action:
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_critical }}"
 
+          # 3) Optional: AI-Analyse (stream_analyzer), wenn aktiviert & Bedingung true
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ ai_enable }}"
+                  - condition: template
+                    value_template: "{{ ai_condition_template }}"
+                sequence:
+                  - action: llmvision.stream_analyzer
+                    metadata: {}
+                    data:
+                      remember: true
+                      duration: "{{ ai_duration }}"
+                      max_frames: "{{ ai_max_frames }}"
+                      include_filename: true
+                      target_width: "{{ ai_target_width }}"
+                      max_tokens: "{{ ai_max_tokens }}"
+                      provider: "{{ ai_provider }}"
+                      model: "{{ ai_model }}"
+                      message: "{{ ai_message }}"
+                      image_entity:
+                        - "{{ camera_entity_snapshot }}"
+                    response_variable: response
+
+          # 4) Remember: immer, wenn aktiviert (nutzt Analyse-Text falls vorhanden)
+          - if:
+              - condition: template
+                value_template: "{{ ai_remember_enable }}"
+            then:
+              - action: llmvision.remember
+                metadata: {}
+                data:
+                  title: "{{ camera }} - {{ label }} {{ notification_time }}"
+                  image_path: "{{ camera_file_path }}/last_motion.jpg"
+                  camera_entity: "{{ camera_entity_snapshot }}"
+                  summary: "{{ response.response_text if (ai_enable and response is defined and response.response_text is defined) else 'Bewegung erkannt (nicht analysiert)' }}"
+
+          # 5) Update-Push mit demselben Tag (falls Analyse gelaufen ist)
+          - if:
+              - condition: template
+                value_template: "{{ ai_enable and response is defined and response.response_text is defined }}"
+            then:
+              - alias: "Notify update (same Tag, Analyzer Response)"
+                repeat:
+                  for_each: "{{ device_name_map }}"
+                  sequence:
+                    - service: "notify.{{ repeat.item }}"
+                      data:
+                        title: "{{ camera }} - {{ label }} {{ notification_time }}"
+                        message: "{{ response.response_text }}"
+                        data:
+                          url: !input tap_navigate
+                          clickAction: !input tap_navigate
+                          tag: "{{ notification_tag }}"
+                          attachment:
+                            url: "{{ snapshot_access_file_path }}"
+                            content_type: JPEG
+                          {% if notification_actions|length > 0 %}
+                          actions: "{{ notification_actions }}"
+                          {% endif %}
+                          push:
+                            interruption-level: active
+                            sound:
+                              name: "{{ notification_sound }}"
+                              volume: "{{ notification_volume }}"
+                              critical: "{{ notification_critical }}"
+
+  # 6) Globaler Cooldown
   - delay: !input cooldown
