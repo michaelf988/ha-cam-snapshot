@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.2.1 (iOS, AI-optional, Sections)"
+  name: "Camera Event Notification 1.2.2 (iOS, AI-optional, Sections)"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -78,6 +78,7 @@ blueprint:
         model:
           name: "Model"
           description: "Modell (abhängig vom gewählten Provider)."
+          default: "gpt-4o-mini"
           selector:
             text:
 
@@ -208,6 +209,20 @@ blueprint:
           default: { seconds: 20 }
           selector:
             duration: {}
+
+        # ----- Dateinamensschema -----
+        timestamp_filenames:
+          name: "Zeitstempel-Dateinamen verwenden"
+          description: "Wenn aktiv, speichert jeden Snapshot als YYYY-MM-DD_HH-MM-SS.jpg."
+          default: true
+          selector:
+            boolean:
+        timestamp_format:
+          name: "Zeitstempel-Format"
+          description: "strftime-Format; Standard: %Y-%m-%d_%H-%M-%S"
+          default: "%Y-%m-%d_%H-%M-%S"
+          selector:
+            text:
 
         # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
@@ -350,6 +365,10 @@ variables:
   max_tokens: !input max_tokens
   ai_remember_enable: !input ai_remember_enable
 
+  # Notif: timestamp
+  timestamp_filenames: !input timestamp_filenames
+  timestamp_format: !input timestamp_format
+
   # Actionable Inputs
   action1_enabled: !input action1_enabled
   action1_title: !input action1_title
@@ -390,11 +409,14 @@ variables:
       {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
     {% endif %}
 
-  # Friendly Name + Pfade
+  # Friendly Name + Pfade/Dateinamen
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
-  file_path: "/config/www/snapshot/{{ camera_file_path }}/last_motion.jpg"
-  snapshot_access_file_path: "/local/snapshot/{{ camera_file_path }}/last_motion.jpg"
+  snapshot_dir_fs: "/config/www/snapshot/{{ camera_file_path }}"
+  snapshot_dir_web: "/local/snapshot/{{ camera_file_path }}"
+  snapshot_filename: "{{ (timestamp_filenames and now().strftime(timestamp_format) or 'last_motion') ~ '.jpg' }}"
+  file_path: "{{ snapshot_dir_fs ~ '/' ~ snapshot_filename }}"
+  snapshot_access_file_path: "{{ snapshot_dir_web ~ '/' ~ snapshot_filename }}"
 
   # Notification-Metadaten
   label: "Bewegung erkannt"
@@ -491,7 +513,7 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # 2) Erste Push (mit Tag & Actions)
+          # 2) Erste Push (mit Tag, Group & Actions)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag)"
             repeat:
               for_each: "{{ device_name_map }}"
@@ -504,6 +526,7 @@ action:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
                       tag: "{{ notification_tag }}"
+                      group: "cams"
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
@@ -547,7 +570,7 @@ action:
                 metadata: {}
                 data:
                   title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                  image_path: "{{ camera_file_path }}/last_motion.jpg"
+                  image_path: "{{ camera_file_path }}/{{ snapshot_filename }}"
                   camera_entity: "{{ camera_entity_snapshot }}"
                   summary: "{{ response.response_text if (ai_enable and response is defined and response.response_text is defined) else 'Bewegung erkannt (nicht analysiert)' }}"
 
@@ -568,6 +591,7 @@ action:
                           url: !input tap_navigate
                           clickAction: !input tap_navigate
                           tag: "{{ notification_tag }}"
+                          group: "cams"
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
