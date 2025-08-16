@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.2 (iOS, AI-optional, Sections)"
+  name: "Camera Event Notification 1.2.1 (iOS, AI-optional, Sections)"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -60,26 +60,26 @@ blueprint:
           default: false
           selector:
             boolean:
-        ai_condition_template:
-          name: "AI Run Condition (Template)"
-          description: "Jinja-Template mit true/false (z. B. states('sun.sun')=='below_horizon')."
-          default: "true"
-          selector:
-            text:
 
-        # Vorbild (event_summary): Provider via config_entry, Model Text usw.
+        ai_run_conditions:
+          name: "AI: Bedingungen"
+          description: "Alle müssen erfüllt sein, damit die Analyse läuft."
+          default: []
+          selector:
+            condition:
+
         provider:
-          name: Provider
+          name: "Provider"
           description: "Provider für Analyse (aus llmvision-Integration)."
           selector:
             config_entry:
               integration: llmvision
+
         model:
-          name: Model
+          name: "Model"
           description: "Modell (abhängig vom gewählten Provider)."
           selector:
             text:
-              multiline: false
 
         ai_message:
           name: "AI: Prompt"
@@ -92,6 +92,7 @@ blueprint:
           selector:
             text:
               multiline: true
+
         duration:
           name: "AI: duration (s)"
           default: 3
@@ -99,6 +100,7 @@ blueprint:
             number:
               min: 1
               max: 60
+
         max_frames:
           name: "AI: max_frames"
           default: 3
@@ -106,6 +108,7 @@ blueprint:
             number:
               min: 1
               max: 60
+
         target_width:
           name: "AI: target_width"
           default: 1280
@@ -113,6 +116,7 @@ blueprint:
             number:
               min: 512
               max: 3840
+
         max_tokens:
           name: "AI: max_tokens"
           default: 100
@@ -129,7 +133,7 @@ blueprint:
             boolean:
 
     # =======================
-    # SECTION: BENACHRICHTIGUNG
+    # SECTION: BENACHRICHTIGUNGEN
     # =======================
     notifications_section:
       name: "Benachrichtigungen"
@@ -142,6 +146,7 @@ blueprint:
           default: true
           selector:
             boolean:
+
         notify_device:
           name: "Notify Device(s)"
           description: "Zielgeräte (Home Assistant Companion)."
@@ -173,6 +178,7 @@ blueprint:
           default: "default"
           selector:
             text:
+
         notification_volume:
           name: "iOS Sound Volume (0..1)"
           default: 1
@@ -181,6 +187,7 @@ blueprint:
               min: 0
               max: 1
               step: 0.1
+
         notification_critical:
           name: "iOS Critical Alert"
           default: false
@@ -202,7 +209,7 @@ blueprint:
           selector:
             duration: {}
 
-        # ----- Actionable Notifications (Option 1–3), UI wie im Beispiel -----
+        # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
           name: "Option 1 aktiv"
           default: true
@@ -331,9 +338,9 @@ variables:
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
 
-  # AI inputs (wie im Vorbild)
+  # AI inputs
   ai_enable: !input ai_enable
-  ai_condition_template: !input ai_condition_template
+  ai_run_conditions: !input ai_run_conditions
   provider: !input provider
   model: !input model
   ai_message: !input ai_message
@@ -394,7 +401,7 @@ variables:
   camera: "{{ camera_friendly }}"
   notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
 
-  # iOS Notify-Dienste
+  # iOS Notify-Dienste (mobile_app_<slug>)
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for dev in (notify_devices or []) %}
@@ -405,12 +412,12 @@ variables:
     {% endfor %}
     {{ ns.device_names }}
 
-  # Action-IDs je Option (eindeutig via context.id)
-  first_option: "{{ 'FIRST_' ~ context.id }}"
-  second_option: "{{ 'SECOND_' ~ context.id }}"
-  third_option: "{{ 'THIRD_' ~ context.id }}"
+  # Action-IDs je Option (eindeutig pro Kamera)
+  first_option: "{{ camera_file_path ~ '_ACTION_1' }}"
+  second_option: "{{ camera_file_path ~ '_ACTION_2' }}"
+  third_option:  "{{ camera_file_path ~ '_ACTION_3' }}"
 
-  # Option-Dicts (wie im notifications.yaml-Beispiel – immer vollständige Keys)
+  # Option-Dicts (vollständig – wie in deinem notifications.yaml-Stil)
   option_one: >
     {{ {
       'enabled': action1_enabled,
@@ -484,7 +491,7 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # 2) Erste Push (mit Tag, Actions, iOS-Payload)
+          # 2) Erste Push (mit Tag & Actions)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag)"
             repeat:
               for_each: "{{ device_name_map }}"
@@ -492,7 +499,7 @@ action:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                    message: "{{ camera }} hat eine Bewegung erkannt }}"
+                    message: "{{ camera }} hat eine Bewegung erkannt."
                     data:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
@@ -508,13 +515,13 @@ action:
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_critical }}"
 
-          # 3) Optional: AI-Analyse
+          # 3) Optional: AI-Analyse (wenn eingeschaltet + Bedingungen erfüllt)
           - choose:
               - conditions:
                   - condition: template
                     value_template: "{{ ai_enable }}"
-                  - condition: template
-                    value_template: "{{ ai_condition_template }}"
+                  - condition: and
+                    conditions: !input ai_run_conditions
                 sequence:
                   - action: llmvision.stream_analyzer
                     metadata: {}
@@ -572,7 +579,7 @@ action:
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_critical }}"
 
-          # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
+          # 6) (Optional) Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
           - choose:
               - conditions:
                   - condition: template
@@ -609,5 +616,5 @@ action:
                             value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == third_option }}"
                         sequence: !input action3_actions
 
-  # 7) Globaler Delay (Flood-Protection)
+  # 7) Globaler Cooldown
   - delay: !input cooldown
