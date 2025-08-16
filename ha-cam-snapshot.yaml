@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.1.0 (iOS, AI-optional)"
+  name: "Camera Event Notification 1.2 (iOS, AI-optional)"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -175,7 +175,7 @@ blueprint:
         text:
           multiline: true
 
-    # ---------- Actionable Notifications (bis zu 3 JSON-Objekte) ----------
+    # ---------- Actionable Notifications (drei JSON-Objekte) ----------
     action1_json:
       name: "Action #1 (JSON)"
       description: 'z.B.: {"action":"OPEN","title":"Öffnen"}'
@@ -223,7 +223,7 @@ variables:
   ai_model: !input ai_model
   ai_message: !input ai_message
 
-  # Actions (JSON strings -> List)
+  # Actions (JSON strings -> Liste)
   action1_json: !input action1_json
   action2_json: !input action2_json
   action3_json: !input action3_json
@@ -314,7 +314,7 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # 2) Erste Push (mit dynamischem Tag + optionalen Actions)
+          # 2) Erste Push (mit dynamischem Tag + optionalen Actions als leere Liste fallback)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag)"
             repeat:
               for_each: "{{ device_name_map }}"
@@ -330,9 +330,7 @@ action:
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
-                      {% if notification_actions|length > 0 %}
-                      actions: "{{ notification_actions }}"
-                      {% endif %}
+                      actions: "{{ notification_actions if notification_actions|length > 0 else [] }}"
                       push:
                         interruption-level: active
                         sound:
@@ -397,9 +395,7 @@ action:
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
-                          {% if notification_actions|length > 0 %}
-                          actions: "{{ notification_actions }}"
-                          {% endif %}
+                          actions: "{{ notification_actions if notification_actions|length > 0 else [] }}"
                           push:
                             interruption-level: active
                             sound:
