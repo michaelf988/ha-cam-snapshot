@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.2 (iOS, AI-optional)"
+  name: "Camera Event Notification 1.2 (iOS, AI-optional, Sections)"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -10,194 +10,314 @@ blueprint:
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
   input:
-    camera_entities:
-      name: "Camera Entities"
-      description: "Eine oder mehrere Kameras (Snapshot standardmäßig von der ersten)."
-      selector:
-        entity:
-          multiple: true
-          filter:
-            domain: camera
 
-    trigger_state:
-      name: "Trigger State"
-      default: "recording"
-      selector:
-        text:
+    # =======================
+    # SECTION: KAMERAS
+    # =======================
+    cameras_section:
+      name: "Kameras"
+      description: "Kamera- und Bewegungsmelder-Einstellungen."
+      icon: mdi:camera
+      collapsed: true
+      input:
+        camera_entities:
+          name: "Camera Entities"
+          description: "Eine oder mehrere Kameras (Snapshot standardmäßig von der ersten)."
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: camera
 
-    motion_sensors:
-      name: "Motion Sensors (optional)"
-      default: []
-      selector:
-        entity:
-          multiple: true
-          filter:
-            domain: binary_sensor
+        trigger_state:
+          name: "Trigger State"
+          description: "Automation startet, wenn eine Kamera in diesen Zustand wechselt."
+          default: "recording"
+          selector:
+            text:
 
-    notify_device:
-      name: "Notify Device(s)"
-      selector:
-        device:
-          multiple: true
-          filter:
-            integration: mobile_app
+        motion_sensors:
+          name: "Motion Sensors (optional)"
+          description: "Nutzen, wenn Kameras den Zustand nicht ändern. Reihenfolge = Reihenfolge der Kameras."
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: binary_sensor
 
-    notify:
-      name: "Enable Notifications"
-      default: true
-      selector:
-        boolean:
+    # =======================
+    # SECTION: AI
+    # =======================
+    ai_section:
+      name: "AI"
+      description: "Einstellungen für llmvision.stream_analyzer / remember."
+      icon: mdi:brain
+      collapsed: true
+      input:
+        ai_enable:
+          name: "AI Analyzer aktivieren"
+          default: false
+          selector:
+            boolean:
+        ai_condition_template:
+          name: "AI Run Condition (Template)"
+          description: "Jinja-Template mit true/false (z. B. states('sun.sun')=='below_horizon')."
+          default: "true"
+          selector:
+            text:
 
-    delay_notification:
-      name: "Notification Cooldown (seconds)"
-      default: 15
-      selector:
-        number:
-          min: 0
-          max: 600
-          unit_of_measurement: seconds
+        # Vorbild (event_summary): Provider via config_entry, Model Text usw.
+        provider:
+          name: Provider
+          description: "Provider für Analyse (aus llmvision-Integration)."
+          selector:
+            config_entry:
+              integration: llmvision
+        model:
+          name: Model
+          description: "Modell (abhängig vom gewählten Provider)."
+          selector:
+            text:
+              multiline: false
 
-    notification_time:
-      name: "Time Snippet in Title (optional)"
-      default: ""
-      selector:
-        select:
-          options:
-            - label: "No Time Added"
-              value: ""
-            - label: "12/24 Hour (de)"
-              value: "um {{ now().strftime('%H:%M') }}"
+        ai_message:
+          name: "AI: Prompt"
+          default: >
+            Beschreibe die Ereignisse, als würdest du sie live beobachten.
+            Konzentriere dich ausschließlich auf bewegliche Objekte (Personen und Fahrzeuge) und deren Bewegungen oder Interaktionen.
+            Ignoriere statische Elemente und die Umgebung vollständig.
+            Verwende kurze, prägnante Sätze.
+            Erwähne nicht, dass etwas statisch ist oder dass keine Bewegung sichtbar ist – außer es gibt wirklich keine erkennbaren Menschen oder Objekte, dann sage nur -Kein Mensch oder Objekt erkennbar-
+          selector:
+            text:
+              multiline: true
+        duration:
+          name: "AI: duration (s)"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 60
+        max_frames:
+          name: "AI: max_frames"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 60
+        target_width:
+          name: "AI: target_width"
+          default: 1280
+          selector:
+            number:
+              min: 512
+              max: 3840
+        max_tokens:
+          name: "AI: max_tokens"
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 300
 
-    tap_navigate:
-      name: "Tap / Click Action Path"
-      default: "/lovelace/test"
-      selector:
-        text:
+        ai_remember_enable:
+          name: "Remember aktivieren"
+          description: "llmvision.remember immer ausführen; nutzt Analyzer-Text, wenn vorhanden."
+          default: true
+          selector:
+            boolean:
 
-    notification_sound:
-      name: "iOS Sound"
-      default: "default"
-      selector:
-        text:
+    # =======================
+    # SECTION: BENACHRICHTIGUNG
+    # =======================
+    notifications_section:
+      name: "Benachrichtigungen"
+      description: "Zustellung, Inhalte, iOS-Optionen und Action-Buttons."
+      icon: mdi:bell
+      collapsed: true
+      input:
+        notify:
+          name: "Enable Notifications"
+          default: true
+          selector:
+            boolean:
+        notify_device:
+          name: "Notify Device(s)"
+          description: "Zielgeräte (Home Assistant Companion)."
+          selector:
+            device:
+              multiple: true
+              filter:
+                integration: mobile_app
 
-    notification_volume:
-      name: "iOS Sound Volume (0..1)"
-      default: 1
-      selector:
-        number:
-          min: 0
-          max: 1
-          step: 0.1
+        notification_time:
+          name: "Zeit im Titel (optional)"
+          default: ""
+          selector:
+            select:
+              options:
+                - label: "No Time Added"
+                  value: ""
+                - label: "12/24 Hour (de)"
+                  value: "um {{ now().strftime('%H:%M') }}"
 
-    notification_critical:
-      name: "iOS Critical Alert"
-      default: false
-      selector:
-        boolean:
+        tap_navigate:
+          name: "Tap / Click Action Path"
+          default: "/lovelace/test"
+          selector:
+            text:
 
-    cooldown:
-      name: "Global Cooldown"
-      default: { seconds: 20 }
-      selector:
-        duration: {}
+        notification_sound:
+          name: "iOS Sound"
+          default: "default"
+          selector:
+            text:
+        notification_volume:
+          name: "iOS Sound Volume (0..1)"
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.1
+        notification_critical:
+          name: "iOS Critical Alert"
+          default: false
+          selector:
+            boolean:
 
-    # ---------- AI / Analyzer ----------
-    ai_enable:
-      name: "Enable AI Stream Analyzer"
-      default: false
-      selector:
-        boolean:
-    ai_condition_template:
-      name: "AI Run Condition (template)"
-      description: "Jinja-Template, das true/false ergibt (z.B. states('sun.sun')=='below_horizon')."
-      default: "true"
-      selector:
-        text:
-    ai_remember_enable:
-      name: "Enable Remember Step"
-      description: "llmvision.remember immer ausführen; nutzt Ergebnis des Analyzers falls vorhanden."
-      default: true
-      selector:
-        boolean:
-    ai_duration:
-      name: "AI: duration (s)"
-      default: 3
-      selector:
-        number:
-          min: 1
-          max: 30
-          mode: box
-    ai_max_frames:
-      name: "AI: max_frames"
-      default: 3
-      selector:
-        number:
-          min: 1
-          max: 10
-          mode: box
-    ai_target_width:
-      name: "AI: target_width"
-      default: 1280
-      selector:
-        number:
-          min: 320
-          max: 3840
-          step: 10
-          mode: box
-    ai_max_tokens:
-      name: "AI: max_tokens"
-      default: 100
-      selector:
-        number:
-          min: 32
-          max: 1024
-          step: 1
-          mode: box
-    ai_provider:
-      name: "AI: provider"
-      default: "01JY7J0D1883A14SY3ZW2HRQFD"
-      selector:
-        text:
-    ai_model:
-      name: "AI: model"
-      default: "gpt-4o-mini"
-      selector:
-        text:
-    ai_message:
-      name: "AI: message (prompt)"
-      default: >
-        Beschreibe die Ereignisse, als würdest du sie live beobachten.
-        Konzentriere dich ausschließlich auf bewegliche Objekte (Personen und Fahrzeuge) und deren Bewegungen oder Interaktionen.
-        Ignoriere statische Elemente und die Umgebung vollständig.
-        Verwende kurze, prägnante Sätze.
-        Erwähne nicht, dass etwas statisch ist oder dass keine Bewegung sichtbar ist – außer es gibt wirklich keine erkennbaren Menschen oder Objekte, dann sage nur -Kein Mensch oder Objekt erkennbar-
-      selector:
-        text:
-          multiline: true
+        delay_notification:
+          name: "Notification Cooldown (seconds)"
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 600
+              unit_of_measurement: seconds
 
-    # ---------- Actionable Notifications (drei JSON-Objekte) ----------
-    action1_json:
-      name: "Action #1 (JSON)"
-      description: 'z.B.: {"action":"OPEN","title":"Öffnen"}'
-      default: ""
-      selector:
-        text:
-          multiline: false
-    action2_json:
-      name: "Action #2 (JSON)"
-      default: ""
-      selector:
-        text:
-          multiline: false
-    action3_json:
-      name: "Action #3 (JSON)"
-      default: ""
-      selector:
-        text:
-          multiline: false
+        cooldown:
+          name: "Global Cooldown"
+          default: { seconds: 20 }
+          selector:
+            duration: {}
+
+        # ----- Actionable Notifications (Option 1–3), UI wie im Beispiel -----
+        action1_enabled:
+          name: "Option 1 aktiv"
+          default: true
+          selector:
+            boolean:
+        action1_title:
+          name: "Option 1 – Titel"
+          default: "Öffnen"
+          selector:
+            text:
+        action1_icon:
+          name: "Option 1 – Icon (iOS)"
+          description: "z. B. sfsymbols:bell"
+          default: ""
+          selector:
+            text:
+        action1_destructive:
+          name: "Option 1 – Destructive (rot, iOS)"
+          default: false
+          selector:
+            boolean:
+        action1_auth_required:
+          name: "Option 1 – Auth required (iOS)"
+          default: false
+          selector:
+            boolean:
+        action1_actions:
+          name: "Option 1 – HA Action(s)"
+          description: "Aktionen, die bei Auswahl ausgeführt werden."
+          default: []
+          selector:
+            action:
+
+        action2_enabled:
+          name: "Option 2 aktiv"
+          default: true
+          selector:
+            boolean:
+        action2_title:
+          name: "Option 2 – Titel"
+          default: "Snooze 15 min"
+          selector:
+            text:
+        action2_icon:
+          name: "Option 2 – Icon (iOS)"
+          default: ""
+          selector:
+            text:
+        action2_destructive:
+          name: "Option 2 – Destructive"
+          default: false
+          selector:
+            boolean:
+        action2_auth_required:
+          name: "Option 2 – Auth required"
+          default: false
+          selector:
+            boolean:
+        action2_actions:
+          name: "Option 2 – HA Action(s)"
+          default: []
+          selector:
+            action:
+
+        action3_enabled:
+          name: "Option 3 aktiv"
+          default: false
+          selector:
+            boolean:
+        action3_title:
+          name: "Option 3 – Titel"
+          default: "Stumm 1h"
+          selector:
+            text:
+        action3_icon:
+          name: "Option 3 – Icon (iOS)"
+          default: ""
+          selector:
+            text:
+        action3_destructive:
+          name: "Option 3 – Destructive"
+          default: false
+          selector:
+            boolean:
+        action3_auth_required:
+          name: "Option 3 – Auth required"
+          default: false
+          selector:
+            boolean:
+        action3_actions:
+          name: "Option 3 – HA Action(s)"
+          default: []
+          selector:
+            action:
+
+        actions_wait_timeout:
+          name: "Warten auf Antwort (Timeout)"
+          description: "Wenn > 0, wartet die Automation auf mobile_app_notification_action und führt die zugehörigen HA-Aktionen aus."
+          default: { minutes: 0, seconds: 0 }
+          selector:
+            duration: {}
+
+    # =======================
+    # SECTION: SONSTIGES
+    # =======================
+    misc_section:
+      name: "Sonstiges"
+      description: "Diverse Einstellungen."
+      icon: mdi:cog
+      collapsed: true
+      input: {}
 
 # ================= Variables =================
 variables:
+  # Inputs
   notify: !input notify
   delay_notification: !input delay_notification
   notification_time: !input notification_time
@@ -211,32 +331,43 @@ variables:
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
 
-  # AI inputs
+  # AI inputs (wie im Vorbild)
   ai_enable: !input ai_enable
   ai_condition_template: !input ai_condition_template
-  ai_remember_enable: !input ai_remember_enable
-  ai_duration: !input ai_duration
-  ai_max_frames: !input ai_max_frames
-  ai_target_width: !input ai_target_width
-  ai_max_tokens: !input ai_max_tokens
-  ai_provider: !input ai_provider
-  ai_model: !input ai_model
+  provider: !input provider
+  model: !input model
   ai_message: !input ai_message
+  duration: !input duration
+  max_frames: !input max_frames
+  target_width: !input target_width
+  max_tokens: !input max_tokens
+  ai_remember_enable: !input ai_remember_enable
 
-  # Actions (JSON strings -> Liste)
-  action1_json: !input action1_json
-  action2_json: !input action2_json
-  action3_json: !input action3_json
-  notification_actions: >
-    {% set items = [] %}
-    {% for s in [action1_json|default('')|trim, action2_json|default('')|trim, action3_json|default('')|trim] %}
-      {% if s %}
-        {% set _ = items.append( s | from_json ) %}
-      {% endif %}
-    {% endfor %}
-    {{ items }}
+  # Actionable Inputs
+  action1_enabled: !input action1_enabled
+  action1_title: !input action1_title
+  action1_icon: !input action1_icon
+  action1_destructive: !input action1_destructive
+  action1_auth_required: !input action1_auth_required
+  action1_actions: !input action1_actions
 
-  # passende Kamera anhand Trigger bestimmen
+  action2_enabled: !input action2_enabled
+  action2_title: !input action2_title
+  action2_icon: !input action2_icon
+  action2_destructive: !input action2_destructive
+  action2_auth_required: !input action2_auth_required
+  action2_actions: !input action2_actions
+
+  action3_enabled: !input action3_enabled
+  action3_title: !input action3_title
+  action3_icon: !input action3_icon
+  action3_destructive: !input action3_destructive
+  action3_auth_required: !input action3_auth_required
+  action3_actions: !input action3_actions
+
+  actions_wait_timeout: !input actions_wait_timeout
+
+  # Kamera aus Trigger ableiten (Sensor→Index→Kamera)
   camera_entity_snapshot: >
     {% if trigger is defined and trigger.entity_id %}
       {% set tid = trigger.entity_id %}
@@ -252,18 +383,18 @@ variables:
       {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
     {% endif %}
 
-  # Friendly Name und Pfade
+  # Friendly Name + Pfade
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
   file_path: "/config/www/snapshot/{{ camera_file_path }}/last_motion.jpg"
   snapshot_access_file_path: "/local/snapshot/{{ camera_file_path }}/last_motion.jpg"
 
-  # Notification-Metadaten inkl. dynamischem Tag
+  # Notification-Metadaten
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
   notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
 
-  # iOS: Dienstnamen aus Device-Namen ableiten (mobile_app_<slug>)
+  # iOS Notify-Dienste
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for dev in (notify_devices or []) %}
@@ -273,6 +404,45 @@ variables:
       {% endif %}
     {% endfor %}
     {{ ns.device_names }}
+
+  # Action-IDs je Option (eindeutig via context.id)
+  first_option: "{{ 'FIRST_' ~ context.id }}"
+  second_option: "{{ 'SECOND_' ~ context.id }}"
+  third_option: "{{ 'THIRD_' ~ context.id }}"
+
+  # Option-Dicts (wie im notifications.yaml-Beispiel – immer vollständige Keys)
+  option_one: >
+    {{ {
+      'enabled': action1_enabled,
+      'action': first_option,
+      'title': action1_title,
+      'icon': action1_icon,
+      'destructive': action1_destructive,
+      'authenticationRequired': action1_auth_required,
+      'actions': action1_actions
+    } }}
+  option_two: >
+    {{ {
+      'enabled': action2_enabled,
+      'action': second_option,
+      'title': action2_title,
+      'icon': action2_icon,
+      'destructive': action2_destructive,
+      'authenticationRequired': action2_auth_required,
+      'actions': action2_actions
+    } }}
+  option_three: >
+    {{ {
+      'enabled': action3_enabled,
+      'action': third_option,
+      'title': action3_title,
+      'icon': action3_icon,
+      'destructive': action3_destructive,
+      'authenticationRequired': action3_auth_required,
+      'actions': action3_actions
+    } }}
+  notification_actions: >
+    {{ [option_one, option_two, option_three] | selectattr('enabled') | list }}
 
 # ================= Meta =================
 mode: queued
@@ -302,7 +472,7 @@ action:
               {{ not this.attributes.last_triggered
                  or (now() - this.attributes.last_triggered).seconds > delay_notification }}
         then:
-          # 1) Snapshot (falls Kamera bestimmt)
+          # 1) Snapshot
           - choose:
               - conditions:
                   - condition: template
@@ -314,7 +484,7 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # 2) Erste Push (mit dynamischem Tag + optionalen Actions als leere Liste fallback)
+          # 2) Erste Push (mit Tag, Actions, iOS-Payload)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag)"
             repeat:
               for_each: "{{ device_name_map }}"
@@ -322,7 +492,7 @@ action:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                    message: "{{ camera }} hat eine Bewegung erkannt."
+                    message: "{{ camera }} hat eine Bewegung erkannt }}"
                     data:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
@@ -330,7 +500,7 @@ action:
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
-                      actions: "{{ notification_actions if notification_actions|length > 0 else [] }}"
+                      actions: "{{ notification_actions }}"
                       push:
                         interruption-level: active
                         sound:
@@ -338,7 +508,7 @@ action:
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_critical }}"
 
-          # 3) Optional: AI-Analyse (stream_analyzer), wenn aktiviert & Bedingung true
+          # 3) Optional: AI-Analyse
           - choose:
               - conditions:
                   - condition: template
@@ -349,20 +519,19 @@ action:
                   - action: llmvision.stream_analyzer
                     metadata: {}
                     data:
-                      remember: true
-                      duration: "{{ ai_duration }}"
-                      max_frames: "{{ ai_max_frames }}"
-                      include_filename: true
-                      target_width: "{{ ai_target_width }}"
-                      max_tokens: "{{ ai_max_tokens }}"
-                      provider: "{{ ai_provider }}"
-                      model: "{{ ai_model }}"
-                      message: "{{ ai_message }}"
                       image_entity:
                         - "{{ camera_entity_snapshot }}"
+                      duration: "{{ duration }}"
+                      provider: !input provider
+                      model: !input model
+                      message: "{{ ai_message }}"
+                      include_filename: true
+                      max_frames: "{{ max_frames }}"
+                      target_width: "{{ target_width }}"
+                      max_tokens: "{{ max_tokens }}"
                     response_variable: response
 
-          # 4) Remember: immer, wenn aktiviert (nutzt Analyse-Text falls vorhanden)
+          # 4) Remember (immer, wenn aktiviert)
           - if:
               - condition: template
                 value_template: "{{ ai_remember_enable }}"
@@ -375,7 +544,7 @@ action:
                   camera_entity: "{{ camera_entity_snapshot }}"
                   summary: "{{ response.response_text if (ai_enable and response is defined and response.response_text is defined) else 'Bewegung erkannt (nicht analysiert)' }}"
 
-          # 5) Update-Push mit demselben Tag (falls Analyse gelaufen ist)
+          # 5) Update-Push (wenn AI gelaufen ist)
           - if:
               - condition: template
                 value_template: "{{ ai_enable and response is defined and response.response_text is defined }}"
@@ -395,7 +564,7 @@ action:
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
-                          actions: "{{ notification_actions if notification_actions|length > 0 else [] }}"
+                          actions: "{{ notification_actions }}"
                           push:
                             interruption-level: active
                             sound:
@@ -403,5 +572,42 @@ action:
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_critical }}"
 
-  # 6) Globaler Cooldown
+          # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ (actions_wait_timeout.hours + actions_wait_timeout.minutes + actions_wait_timeout.seconds) > 0 }}
+                sequence:
+                  - wait_for_trigger:
+                      - platform: event
+                        event_type: mobile_app_notification_action
+                        event_data:
+                          action: "{{ first_option }}"
+                      - platform: event
+                        event_type: mobile_app_notification_action
+                        event_data:
+                          action: "{{ second_option }}"
+                      - platform: event
+                        event_type: mobile_app_notification_action
+                        event_data:
+                          action: "{{ third_option }}"
+                    timeout: "{{ actions_wait_timeout }}"
+                    continue_on_timeout: true
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == first_option }}"
+                        sequence: !input action1_actions
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == second_option }}"
+                        sequence: !input action2_actions
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == third_option }}"
+                        sequence: !input action3_actions
+
+  # 7) Globaler Delay (Flood-Protection)
   - delay: !input cooldown
