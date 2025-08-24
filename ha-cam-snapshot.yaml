@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.3.1"
+  name: "Camera Event Notification 1.3.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -575,8 +575,8 @@ action:
                       model: !input model
                       message: "{{ importance_prompt }}"
                       include_filename: true
-                      target_width: 1280
-                      max_tokens: 3
+                      target_width: "{{ target_width }}"
+                      max_tokens: "{{ max_tokens }}"
                     response_variable: importance
 
           # Level aus importance.response_text ableiten (oder Default)
