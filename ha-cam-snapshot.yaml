@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.2.4"
+  name: "Camera Event Notification 1.2.5"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -84,12 +84,11 @@ blueprint:
 
         ai_message:
           name: "AI: Prompt"
+          description: "Sehr kurze, knappe Erkennungsausgabe."
           default: >
-            Beschreibe die Ereignisse, als würdest du sie live beobachten.
-            Konzentriere dich ausschließlich auf bewegliche Objekte (Personen und Fahrzeuge) und deren Bewegungen oder Interaktionen.
-            Ignoriere statische Elemente und die Umgebung vollständig.
-            Verwende kurze, prägnante Sätze.
-            Erwähne nicht, dass etwas statisch ist oder dass keine Bewegung sichtbar ist – außer es gibt wirklich keine erkennbaren Menschen oder Objekte, dann sage nur -Kein Mensch oder Objekt erkennbar-
+            Antworte NUR mit einem der folgenden kurzen Stichwörter (Deutsch), ohne Zusatz:
+            "Person erkannt", "Fahrzeug erkannt", "Person & Fahrzeug", "Mehrere Personen",
+            "Tier erkannt", "Unklar", "Keine relevante Bewegung".
           selector:
             text:
               multiline: true
@@ -521,7 +520,7 @@ action:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                    message: "{{ camera }} hat eine Bewegung erkannt."
+                    message: "Bewegung erkannt."
                     data:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
@@ -561,7 +560,7 @@ action:
                       max_tokens: "{{ max_tokens }}"
                     response_variable: response
 
-          # 4) Remember (immer, wenn aktiviert) — FIX: image_path = file_path
+          # 4) Remember (immer, wenn aktiviert)
           - if:
               - condition: template
                 value_template: "{{ ai_remember_enable }}"
