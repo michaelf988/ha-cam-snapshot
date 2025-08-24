@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.2.3"
+  name: "Camera Event Notification 1.2.4"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -561,7 +561,7 @@ action:
                       max_tokens: "{{ max_tokens }}"
                     response_variable: response
 
-          # 4) Remember (immer, wenn aktiviert)
+          # 4) Remember (immer, wenn aktiviert) — FIX: image_path = file_path
           - if:
               - condition: template
                 value_template: "{{ ai_remember_enable }}"
@@ -570,7 +570,7 @@ action:
                 metadata: {}
                 data:
                   title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                  image_path: "{{ camera_file_path }}/{{ snapshot_filename }}"
+                  image_path: "{{ file_path }}"
                   camera_entity: "{{ camera_entity_snapshot }}"
                   summary: "{{ response.response_text if (ai_enable and response is defined and response.response_text is defined) else 'Bewegung erkannt (nicht analysiert)' }}"
 
