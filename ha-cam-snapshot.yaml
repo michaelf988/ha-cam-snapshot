@@ -569,7 +569,8 @@ action:
                   - action: llmvision.image_analyzer
                     metadata: {}
                     data:
-                      image_entity: "{{ [camera_entity_snapshot] }}"
+                      image_entity:
+                        - "{{ camera_entity_snapshot }}"
                       provider: !input provider
                       model: !input model
                       message: "{{ importance_prompt }}"
