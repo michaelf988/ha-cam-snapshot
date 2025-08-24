@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.2.2 (iOS, AI-optional, Sections)"
+  name: "Camera Event Notification 1.2.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -176,7 +176,7 @@ blueprint:
 
         notification_sound:
           name: "iOS Sound"
-          default: "default"
+          default: "LiquidDetected.caf"
           selector:
             text:
 
@@ -227,7 +227,7 @@ blueprint:
         # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
           name: "Option 1 aktiv"
-          default: true
+          default: false
           selector:
             boolean:
         action1_title:
@@ -260,7 +260,7 @@ blueprint:
 
         action2_enabled:
           name: "Option 2 aktiv"
-          default: true
+          default: false
           selector:
             boolean:
         action2_title:
@@ -409,11 +409,11 @@ variables:
       {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
     {% endif %}
 
-  # Friendly Name + Pfade/Dateinamen
+  # Friendly Name + Pfade/Dateinamen (LLMVISION-DIR)
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
-  snapshot_dir_fs: "/config/www/snapshot/{{ camera_file_path }}"
-  snapshot_dir_web: "/local/snapshot/{{ camera_file_path }}"
+  snapshot_dir_fs: "/config/www/llmvision/{{ camera_file_path }}"
+  snapshot_dir_web: "/local/llmvision/{{ camera_file_path }}"
   snapshot_filename: "{{ (timestamp_filenames and now().strftime(timestamp_format) or 'last_motion') ~ '.jpg' }}"
   file_path: "{{ snapshot_dir_fs ~ '/' ~ snapshot_filename }}"
   snapshot_access_file_path: "{{ snapshot_dir_web ~ '/' ~ snapshot_filename }}"
@@ -439,7 +439,7 @@ variables:
   second_option: "{{ camera_file_path ~ '_ACTION_2' }}"
   third_option:  "{{ camera_file_path ~ '_ACTION_3' }}"
 
-  # Option-Dicts (vollständig – wie in deinem notifications.yaml-Stil)
+  # Option-Dicts (vollständig)
   option_one: >
     {{ {
       'enabled': action1_enabled,
@@ -532,7 +532,7 @@ action:
                         content_type: JPEG
                       actions: "{{ notification_actions }}"
                       push:
-                        interruption-level: active
+                        interruption-level: time-sensitive
                         sound:
                           name: "{{ notification_sound }}"
                           volume: "{{ notification_volume }}"
@@ -597,7 +597,7 @@ action:
                             content_type: JPEG
                           actions: "{{ notification_actions }}"
                           push:
-                            interruption-level: active
+                            interruption-level: time-sensitive
                             sound:
                               name: "{{ notification_sound }}"
                               volume: "{{ notification_volume }}"
