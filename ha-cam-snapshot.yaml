@@ -1,11 +1,12 @@
 blueprint:
-  name: "Camera Event Notification 1.2.5"
+  name: "Camera Event Notification 1.3.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
-    iOS-Kamera-Benachrichtigung mit Snapshot, optionaler Live-Analyse (llmvision.stream_analyzer),
+    iOS-Kamera-Benachrichtigung mit Snapshot, optionaler Live-/Bild-Analyse (llmvision.image_analyzer / stream_analyzer),
     automatischem Erinnern (llmvision.remember) und Update der Push via Tag. Nutzt den friendly_name der Kamera.
+    NEU: Vorab-Klassifizierung der Wichtigkeit (passive/active/time-sensitive/critical) mit optionalem Gate.
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
@@ -47,23 +48,60 @@ blueprint:
                 domain: binary_sensor
 
     # =======================
-    # SECTION: AI
+    # SECTION: AI (Bild-/Stream-Analyse)
     # =======================
     ai_section:
       name: "AI"
-      description: "Einstellungen für llmvision.stream_analyzer / remember."
+      description: "Vorklassifizierung (image_analyzer) & Live-Analyse (stream_analyzer)."
       icon: mdi:brain
       collapsed: true
       input:
+        # --- Vorklassifizierung (Image Analyzer) ---
+        importance_enable:
+          name: "Wichtigkeits-Check aktivieren (image_analyzer)"
+          default: false
+          selector:
+            boolean:
+
+        importance_run_conditions:
+          name: "Bedingungen für Wichtigkeits-Check"
+          description: "Alle Bedingungen müssen erfüllt sein, damit image_analyzer läuft."
+          default: []
+          selector:
+            condition:
+
+        importance_prompt:
+          name: "Prompt für Wichtigkeits-Check"
+          description: >
+            Liefert genau eines der Wörter: passive, active, time-sensitive, critical.
+            Mapping: passive=keine Person; active=wahrscheinlich Person; time-sensitive=definitiv Person; critical=Person ODER gefährliche Situation.
+          default: >
+            Classify the security event based on this image. Respond with exactly one of:
+            "passive" (no person), "active" (probably a person), "time-sensitive" (definitely a person),
+            or "critical" (definitely a person OR dangerous situation like burglary or fire). No extra words.
+          selector:
+            text:
+              multiline: true
+
+        importance_gate_enable:
+          name: "Nur wichtige Ereignisse weiterverarbeiten (Gate)"
+          description: >
+            Wenn aktiv, wird die Automation NUR fortgesetzt, wenn das Ereignis mindestens "time-sensitive" ist.
+            Bei weniger Wichtigkeit (passive/active) wird die Pipeline gestoppt – ABER 'remember' läuft trotzdem (falls aktiviert).
+          default: false
+          selector:
+            boolean:
+
+        # --- Stream Analyzer (wie gehabt) ---
         ai_enable:
-          name: "AI Analyzer aktivieren"
+          name: "AI Stream Analyzer aktivieren"
           default: false
           selector:
             boolean:
 
         ai_run_conditions:
-          name: "AI: Bedingungen"
-          description: "Alle müssen erfüllt sein, damit die Analyse läuft."
+          name: "AI: Bedingungen (Stream)"
+          description: "Alle müssen erfüllt sein, damit die Live-Analyse läuft."
           default: []
           selector:
             condition:
@@ -83,7 +121,7 @@ blueprint:
             text:
 
         ai_message:
-          name: "AI: Prompt"
+          name: "AI: Prompt (Stream Analyzer, sehr kurz)"
           description: "Sehr kurze, knappe Erkennungsausgabe."
           default: >
             Antworte NUR mit einem der folgenden kurzen Stichwörter (Deutsch), ohne Zusatz:
@@ -353,6 +391,11 @@ variables:
   notify_devices: !input notify_device
 
   # AI inputs
+  importance_enable: !input importance_enable
+  importance_run_conditions: !input importance_run_conditions
+  importance_prompt: !input importance_prompt
+  importance_gate_enable: !input importance_gate_enable
+
   ai_enable: !input ai_enable
   ai_run_conditions: !input ai_run_conditions
   provider: !input provider
@@ -490,16 +533,19 @@ trigger:
 
 # ================= Actions =================
 action:
+  # Sicherheits-Check, ob Benachrichtigungen aktiv sind
   - if:
       - condition: template
         value_template: "{{ notify }}"
     then:
+      # Flood-Control lokal auf Ebene der Automation
       - if:
           - condition: template
             value_template: >
               {{ not this.attributes.last_triggered
                  or (now() - this.attributes.last_triggered).seconds > delay_notification }}
         then:
+
           # 1) Snapshot
           - choose:
               - conditions:
@@ -512,8 +558,62 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # 2) Erste Push (mit Tag, Group & Actions)
-          - alias: "Notify initial (iOS, Snapshot Attachment, with Tag)"
+          # 2) Wichtigkeits-Analyse (image_analyzer) – optional
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ importance_enable }}"
+                  - condition: and
+                    conditions: !input importance_run_conditions
+                sequence:
+                  - action: llmvision.image_analyzer
+                    metadata: {}
+                    data:
+                      image_entity: "{{ [camera_entity_snapshot] }}"
+                      provider: !input provider
+                      model: !input model
+                      message: "{{ importance_prompt }}"
+                      include_filename: true
+                      target_width: 1280
+                      max_tokens: 3
+                    response_variable: importance
+
+          # Level aus importance.response_text ableiten (oder Default)
+          - variables:
+              notification_level: >
+                {% set default = 'time-sensitive' %}
+                {% if importance is defined and importance.response_text %}
+                  {% set t = importance.response_text | lower %}
+                  {% if 'critical' in t %}critical
+                  {% elif 'time-sensitive' in t or 'time sensitive' in t %}time-sensitive
+                  {% elif 'active' in t %}active
+                  {% elif 'passive' in t %}passive
+                  {% else %}{{ default }}{% endif %}
+                {% else %}{{ default }}{% endif %}
+
+          # 3) Gate: Nur wichtige Ereignisse weiterverarbeiten? (>= time-sensitive)
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ importance_gate_enable and notification_level in ['passive','active'] }}"
+                sequence:
+                  # Gate blockiert: Remember trotzdem ausführen (falls aktiviert) und dann abbrechen
+                  - if:
+                      - condition: template
+                        value_template: "{{ ai_remember_enable }}"
+                    then:
+                      - action: llmvision.remember
+                        metadata: {}
+                        data:
+                          title: "{{ camera }} - {{ label }} {{ notification_time }}"
+                          image_path: "{{ file_path }}"
+                          camera_entity: "{{ camera_entity_snapshot }}"
+                          summary: >
+                            {{ importance.response_text if (importance is defined and importance.response_text) else 'Bewegung erkannt (nicht analysiert)' }}
+                  - stop: "Gate aktiv: Ereignis nicht wichtig genug ({{ notification_level }})."
+
+          # 3) Erste Push (mit dynamischem interruption-level nach importance)
+          - alias: "Notify initial (iOS, Snapshot Attachment, with Tag & dynamic level)"
             repeat:
               for_each: "{{ device_name_map }}"
               sequence:
@@ -531,13 +631,13 @@ action:
                         content_type: JPEG
                       actions: "{{ notification_actions }}"
                       push:
-                        interruption-level: time-sensitive
+                        interruption-level: "{{ notification_level }}"
                         sound:
                           name: "{{ notification_sound }}"
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_critical }}"
 
-          # 3) Optional: AI-Analyse (wenn eingeschaltet + Bedingungen erfüllt)
+          # 4) Optional: AI-Stream-Analyse (läuft NACH der ersten Push)
           - choose:
               - conditions:
                   - condition: template
@@ -560,7 +660,7 @@ action:
                       max_tokens: "{{ max_tokens }}"
                     response_variable: response
 
-          # 4) Remember (immer, wenn aktiviert)
+          # 5) Remember: immer (falls aktiviert) – nutzt Stream- oder Importance-Text
           - if:
               - condition: template
                 value_template: "{{ ai_remember_enable }}"
@@ -571,14 +671,21 @@ action:
                   title: "{{ camera }} - {{ label }} {{ notification_time }}"
                   image_path: "{{ file_path }}"
                   camera_entity: "{{ camera_entity_snapshot }}"
-                  summary: "{{ response.response_text if (ai_enable and response is defined and response.response_text is defined) else 'Bewegung erkannt (nicht analysiert)' }}"
+                  summary: >
+                    {% if response is defined and response.response_text is defined %}
+                      {{ response.response_text }}
+                    {% elif importance is defined and importance.response_text %}
+                      {{ importance.response_text }}
+                    {% else %}
+                      Bewegung erkannt (nicht analysiert)
+                    {% endif %}
 
-          # 5) Update-Push (wenn AI gelaufen ist)
+          # 5) Update-Push (falls Stream-Analyse gelaufen ist)
           - if:
               - condition: template
                 value_template: "{{ ai_enable and response is defined and response.response_text is defined }}"
             then:
-              - alias: "Notify update (same Tag, Analyzer Response)"
+              - alias: "Notify update (same Tag, Analyzer Response, dynamic level)"
                 repeat:
                   for_each: "{{ device_name_map }}"
                   sequence:
@@ -596,13 +703,13 @@ action:
                             content_type: JPEG
                           actions: "{{ notification_actions }}"
                           push:
-                            interruption-level: time-sensitive
+                            interruption-level: "{{ notification_level }}"
                             sound:
                               name: "{{ notification_sound }}"
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_critical }}"
 
-          # 6) (Optional) Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
+          # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
           - choose:
               - conditions:
                   - condition: template
