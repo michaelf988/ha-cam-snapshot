@@ -1,12 +1,14 @@
 blueprint:
-  name: "Camera Event Notification 1.3.0"
+  name: "Camera Event Notification 1.3.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
-    iOS-Kamera-Benachrichtigung mit Snapshot, optionaler Live-/Bild-Analyse (llmvision.image_analyzer / stream_analyzer),
-    automatischem Erinnern (llmvision.remember) und Update der Push via Tag. Nutzt den friendly_name der Kamera.
-    NEU: Vorab-Klassifizierung der Wichtigkeit (passive/active/time-sensitive/critical) mit optionalem Gate.
+    iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer),
+    optionaler Live-Analyse (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember)
+    und Update der Push via Tag. Nutzt den friendly_name der Kamera. Interruption-Level wird dynamisch
+    aus der Wichtigkeitsanalyse gesetzt (passive/active/time-sensitive/critical) und kann die
+    Stream-Analyse bei 'critical' erzwingen (optional).
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
@@ -92,7 +94,14 @@ blueprint:
           selector:
             boolean:
 
-        # --- Stream Analyzer (wie gehabt) ---
+        ai_force_on_critical:
+          name: "Stream-Analyse erzwingen bei 'critical'"
+          description: "Ignoriere ai_enable & Zusatzbedingungen, wenn die Wichtigkeitsanalyse 'critical' ergibt."
+          default: true
+          selector:
+            boolean:
+
+        # --- Stream Analyzer (optional) ---
         ai_enable:
           name: "AI Stream Analyzer aktivieren"
           default: false
@@ -225,12 +234,6 @@ blueprint:
               min: 0
               max: 1
               step: 0.1
-
-        notification_critical:
-          name: "iOS Critical Alert"
-          default: false
-          selector:
-            boolean:
 
         delay_notification:
           name: "Notification Cooldown (seconds)"
@@ -384,7 +387,6 @@ variables:
 
   notification_sound: !input notification_sound
   notification_volume: !input notification_volume
-  notification_critical: !input notification_critical
 
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
@@ -395,6 +397,7 @@ variables:
   importance_run_conditions: !input importance_run_conditions
   importance_prompt: !input importance_prompt
   importance_gate_enable: !input importance_gate_enable
+  ai_force_on_critical: !input ai_force_on_critical
 
   ai_enable: !input ai_enable
   ai_run_conditions: !input ai_run_conditions
@@ -465,6 +468,12 @@ variables:
   camera: "{{ camera_friendly }}"
   notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
 
+  # Kritikalität als Hilfsvariable (für OR-Bedingung in Schritt 4)
+  importance_is_critical: >
+    {% if importance is defined and importance.response_text %}
+      {{ 'critical' in (importance.response_text | lower) }}
+    {% else %}false{% endif %}
+
   # iOS Notify-Dienste (mobile_app_<slug>)
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
@@ -533,12 +542,10 @@ trigger:
 
 # ================= Actions =================
 action:
-  # Sicherheits-Check, ob Benachrichtigungen aktiv sind
   - if:
       - condition: template
         value_template: "{{ notify }}"
     then:
-      # Flood-Control lokal auf Ebene der Automation
       - if:
           - condition: template
             value_template: >
@@ -558,7 +565,7 @@ action:
                     data:
                       filename: "{{ file_path }}"
 
-          # 2) Wichtigkeits-Analyse (image_analyzer) – optional
+          # 2) Wichtigkeits-Analyse (image_analyzer) – optional, nutzt den erzeugten Snapshot (file_path)
           - choose:
               - conditions:
                   - condition: template
@@ -569,8 +576,8 @@ action:
                   - action: llmvision.image_analyzer
                     metadata: {}
                     data:
-                      image_entity:
-                        - "{{ camera_entity_snapshot }}"
+                      image_file:
+                        - "{{ file_path }}"
                       provider: !input provider
                       model: !input model
                       message: "{{ importance_prompt }}"
@@ -598,7 +605,6 @@ action:
                   - condition: template
                     value_template: "{{ importance_gate_enable and notification_level in ['passive','active'] }}"
                 sequence:
-                  # Gate blockiert: Remember trotzdem ausführen (falls aktiviert) und dann abbrechen
                   - if:
                       - condition: template
                         value_template: "{{ ai_remember_enable }}"
@@ -613,7 +619,7 @@ action:
                             {{ importance.response_text if (importance is defined and importance.response_text) else 'Bewegung erkannt (nicht analysiert)' }}
                   - stop: "Gate aktiv: Ereignis nicht wichtig genug ({{ notification_level }})."
 
-          # 3) Erste Push (mit dynamischem interruption-level nach importance)
+          # 3) Erste Push (mit dynamischem interruption-level aus notification_level)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag & dynamic level)"
             repeat:
               for_each: "{{ device_name_map }}"
@@ -636,15 +642,31 @@ action:
                         sound:
                           name: "{{ notification_sound }}"
                           volume: "{{ notification_volume }}"
-                          critical: "{{ notification_critical }}"
+                          critical: "{{ notification_level == 'critical' }}"
 
-          # 4) Optional: AI-Stream-Analyse (läuft NACH der ersten Push)
+          # 4) AI-Stream-Analyse (einmalig): erzwungen bei 'critical' ODER normal via ai_enable+conditions
           - choose:
               - conditions:
-                  - condition: template
-                    value_template: "{{ ai_enable }}"
-                  - condition: and
-                    conditions: !input ai_run_conditions
+                  - condition: or
+                    conditions:
+                      # a) erzwungen bei critical
+                      - condition: and
+                        conditions:
+                          - condition: template
+                            value_template: "{{ ai_force_on_critical }}"
+                          - condition: template
+                            value_template: "{{ importance_is_critical }}"
+                          - condition: template
+                            value_template: "{{ camera_entity_snapshot != '' }}"
+                      # b) normal via ai_enable + conditions
+                      - condition: and
+                        conditions:
+                          - condition: template
+                            value_template: "{{ ai_enable }}"
+                          - condition: and
+                            conditions: !input ai_run_conditions
+                          - condition: template
+                            value_template: "{{ camera_entity_snapshot != '' }}"
                 sequence:
                   - action: llmvision.stream_analyzer
                     metadata: {}
@@ -684,7 +706,7 @@ action:
           # 5) Update-Push (falls Stream-Analyse gelaufen ist)
           - if:
               - condition: template
-                value_template: "{{ ai_enable and response is defined and response.response_text is defined }}"
+                value_template: "{{ response is defined and response.response_text is defined }}"
             then:
               - alias: "Notify update (same Tag, Analyzer Response, dynamic level)"
                 repeat:
@@ -708,7 +730,7 @@ action:
                             sound:
                               name: "{{ notification_sound }}"
                               volume: "{{ notification_volume }}"
-                              critical: "{{ notification_critical }}"
+                              critical: "{{ notification_level == 'critical' }}"
 
           # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
           - choose:
