@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.3.7"
+  name: "Camera Event Notification 1.3.9"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -8,6 +8,7 @@ blueprint:
     inkl. klassenabhängigen Bedingungen (passive/active/time-sensitive), optionaler Live-Analyse
     (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember) und Update der Push via Tag.
     Gate kann zusätzlich mit eigenen Bedingungen versehen werden. Nutzt den friendly_name der Kamera.
+    Interruption-Level wird dynamisch aus der Wichtigkeitsanalyse gesetzt. Enthält drei konfigurierbare Action-Buttons.
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
@@ -484,6 +485,58 @@ variables:
       {{ 'critical' in (importance.response_text | lower) }}
     {% else %}false{% endif %}
 
+  # Action-IDs je Option (eindeutig pro Kamera)
+  first_option: "{{ camera_file_path ~ '_ACTION_1' }}"
+  second_option: "{{ camera_file_path ~ '_ACTION_2' }}"
+  third_option:  "{{ camera_file_path ~ '_ACTION_3' }}"
+
+  # Robuste Liste gültiger mobile_app Notify-Services
+  device_name_map: >
+    {% set ns = namespace(device_names=[]) %}
+    {% for dev in (notify_devices or []) %}
+      {% set name = device_attr(dev, 'name') | default('', true) %}
+      {% set slug = (name | slugify) | default('', true) %}
+      {% if slug and (slug | length > 0) %}
+        {% set ns.device_names = ns.device_names + ['mobile_app_' ~ slug] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.device_names }}
+
+  # Option-Dicts (für iOS-Actions im Push)
+  option_one: >
+    {{ {
+      'enabled': (states('input_boolean.dummy') or none) is none and (false) is not true or true and (true if (false) else true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true),
+      'action': first_option,
+      'title': !input action1_title,
+      'icon': !input action1_icon,
+      'destructive': !input action1_destructive,
+      'authenticationRequired': !input action1_auth_required
+    } }}
+  option_two: >
+    {{ {
+      'enabled': true,
+      'action': second_option,
+      'title': !input action2_title,
+      'icon': !input action2_icon,
+      'destructive': !input action2_destructive,
+      'authenticationRequired': !input action2_auth_required
+    } }}
+  option_three: >
+    {{ {
+      'enabled': true,
+      'action': third_option,
+      'title': !input action3_title,
+      'icon': !input action3_icon,
+      'destructive': !input action3_destructive,
+      'authenticationRequired': !input action3_auth_required
+    } }}
+  notification_actions: >
+    {{ [
+      (option_one if ( !is_state('sensor._', 'x') and ( !is_state('sensor.__', 'x') ) ) else option_one),
+      option_two,
+      option_three
+    ] | selectattr('enabled') | list }}
+
 # ================= Meta =================
 mode: queued
 max: 25
@@ -624,10 +677,10 @@ action:
                             {{ importance.response_text if (importance is defined and importance.response_text) else 'Bewegung erkannt (nicht analysiert)' }}
                   - stop: "Gate aktiv: Ereignis nicht wichtig genug ({{ notification_level }})."
 
-          # 3) Erste Push (mit dynamischem interruption-level + Klasse im Text)
+          # 3) Erste Push (mit dynamischem interruption-level + Klasse im Text + Actions)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag & dynamic level)"
             repeat:
-              for_each: "{{ notify_devices | map('device_attr', 'name') | map('slugify') | map('regex_replace','^(.*)$','mobile_app_\\1') | list }}"
+              for_each: "{{ device_name_map }}"
               sequence:
                 - service: "notify.{{ repeat.item }}"
                   data:
@@ -641,6 +694,7 @@ action:
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
+                      actions: "{{ notification_actions }}"
                       push:
                         interruption-level: "{{ notification_level }}"
                         sound:
@@ -714,7 +768,7 @@ action:
             then:
               - alias: "Notify update (same Tag, Analyzer Response, dynamic level)"
                 repeat:
-                  for_each: "{{ notify_devices | map('device_attr', 'name') | map('slugify') | map('regex_replace','^(.*)$','mobile_app_\\1') | list }}"
+                  for_each: "{{ device_name_map }}"
                   sequence:
                     - service: "notify.{{ repeat.item }}"
                       data:
@@ -728,6 +782,7 @@ action:
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
+                          actions: "{{ notification_actions }}"
                           push:
                             interruption-level: "{{ notification_level }}"
                             sound:
@@ -735,5 +790,42 @@ action:
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_level == 'critical' }}"
 
-  # 6) Globaler Cooldown
+          # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ (actions_wait_timeout.hours + actions_wait_timeout.minutes + actions_wait_timeout.seconds) > 0 }}
+                sequence:
+                  - wait_for_trigger:
+                      - platform: event
+                        event_type: mobile_app_notification_action
+                        event_data:
+                          action: "{{ first_option }}"
+                      - platform: event
+                        event_type: mobile_app_notification_action
+                        event_data:
+                          action: "{{ second_option }}"
+                      - platform: event
+                        event_type: mobile_app_notification_action
+                        event_data:
+                          action: "{{ third_option }}"
+                    timeout: !input actions_wait_timeout
+                    continue_on_timeout: true
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == first_option }}"
+                        sequence: !input action1_actions
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == second_option }}"
+                        sequence: !input action2_actions
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == third_option }}"
+                        sequence: !input action3_actions
+
+  # 7) Globaler Cooldown
   - delay: !input cooldown
