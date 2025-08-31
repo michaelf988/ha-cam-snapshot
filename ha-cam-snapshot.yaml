@@ -1,14 +1,13 @@
 blueprint:
-  name: "Camera Event Notification 1.3.5"
+  name: "Camera Event Notification 1.3.7"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
-    iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer),
-    optionaler Live-Analyse (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember)
-    und Update der Push via Tag. Nutzt den friendly_name der Kamera. Interruption-Level wird dynamisch
-    aus der Wichtigkeitsanalyse gesetzt (passive/active/time-sensitive/critical) und kann die
-    Stream-Analyse bei 'critical' erzwingen (optional).
+    iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer)
+    inkl. klassenabhängigen Bedingungen (passive/active/time-sensitive), optionaler Live-Analyse
+    (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember) und Update der Push via Tag.
+    Gate kann zusätzlich mit eigenen Bedingungen versehen werden. Nutzt den friendly_name der Kamera.
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
@@ -85,6 +84,27 @@ blueprint:
             text:
               multiline: true
 
+        # Klassen-Bedingungen (greifen NUR, wenn die jeweilige Klasse vorgeschlagen wurde)
+        importance_conditions_passive:
+          name: "Bedingungen für PASSIVE"
+          description: "Optional – ändert nichts (bleibt passive), dient nur zu Tests/Transparenz."
+          default: []
+          selector:
+            condition:
+        importance_conditions_active:
+          name: "Bedingungen für ACTIVE"
+          description: "Wenn NICHT erfüllt, wird Benachrichtigung auf PASSIVE zurückgestuft."
+          default: []
+          selector:
+            condition:
+        importance_conditions_timesensitive:
+          name: "Bedingungen für TIME-SENSITIVE"
+          description: "Wenn NICHT erfüllt, wird Benachrichtigung auf PASSIVE zurückgestuft."
+          default: []
+          selector:
+            condition:
+
+        # Gate
         importance_gate_enable:
           name: "Nur wichtige Ereignisse weiterverarbeiten (Gate)"
           description: >
@@ -93,7 +113,14 @@ blueprint:
           default: false
           selector:
             boolean:
+        importance_gate_conditions:
+          name: "Gate: Zusätzliche Bedingungen"
+          description: "Diese Bedingungen müssen zusätzlich erfüllt sein, damit das Gate greift."
+          default: []
+          selector:
+            condition:
 
+        # Kritisch erzwingen → Stream
         ai_force_on_critical:
           name: "Stream-Analyse erzwingen bei 'critical'"
           description: "Ignoriere ai_enable & Zusatzbedingungen, wenn die Wichtigkeitsanalyse 'critical' ergibt."
@@ -396,7 +423,14 @@ variables:
   importance_enable: !input importance_enable
   importance_run_conditions: !input importance_run_conditions
   importance_prompt: !input importance_prompt
+
+  importance_conditions_passive: !input importance_conditions_passive
+  importance_conditions_active: !input importance_conditions_active
+  importance_conditions_timesensitive: !input importance_conditions_timesensitive
+
   importance_gate_enable: !input importance_gate_enable
+  importance_gate_conditions: !input importance_gate_conditions
+
   ai_force_on_critical: !input ai_force_on_critical
 
   ai_enable: !input ai_enable
@@ -413,30 +447,6 @@ variables:
   # Notif: timestamp
   timestamp_filenames: !input timestamp_filenames
   timestamp_format: !input timestamp_format
-
-  # Actionable Inputs
-  action1_enabled: !input action1_enabled
-  action1_title: !input action1_title
-  action1_icon: !input action1_icon
-  action1_destructive: !input action1_destructive
-  action1_auth_required: !input action1_auth_required
-  action1_actions: !input action1_actions
-
-  action2_enabled: !input action2_enabled
-  action2_title: !input action2_title
-  action2_icon: !input action2_icon
-  action2_destructive: !input action2_destructive
-  action2_auth_required: !input action2_auth_required
-  action2_actions: !input action2_actions
-
-  action3_enabled: !input action3_enabled
-  action3_title: !input action3_title
-  action3_icon: !input action3_icon
-  action3_destructive: !input action3_destructive
-  action3_auth_required: !input action3_auth_required
-  action3_actions: !input action3_actions
-
-  actions_wait_timeout: !input actions_wait_timeout
 
   # Kamera aus Trigger ableiten (Sensor→Index→Kamera)
   camera_entity_snapshot: >
@@ -468,61 +478,11 @@ variables:
   camera: "{{ camera_friendly }}"
   notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
 
-  # Kritikalität als Hilfsvariable (für OR-Bedingung in Schritt 4)
+  # Kritikalität: helper (für OR in Schritt 4)
   importance_is_critical: >
     {% if importance is defined and importance.response_text %}
       {{ 'critical' in (importance.response_text | lower) }}
     {% else %}false{% endif %}
-
-  # iOS Notify-Dienste (mobile_app_<slug>)
-  device_name_map: >
-    {% set ns = namespace(device_names=[]) %}
-    {% for dev in (notify_devices or []) %}
-      {% set name = device_attr(dev, 'name') %}
-      {% if name %}
-        {% set ns.device_names = ns.device_names + ['mobile_app_' ~ (name | slugify)] %}
-      {% endif %}
-    {% endfor %}
-    {{ ns.device_names }}
-
-  # Action-IDs je Option (eindeutig pro Kamera)
-  first_option: "{{ camera_file_path ~ '_ACTION_1' }}"
-  second_option: "{{ camera_file_path ~ '_ACTION_2' }}"
-  third_option:  "{{ camera_file_path ~ '_ACTION_3' }}"
-
-  # Option-Dicts (vollständig)
-  option_one: >
-    {{ {
-      'enabled': action1_enabled,
-      'action': first_option,
-      'title': action1_title,
-      'icon': action1_icon,
-      'destructive': action1_destructive,
-      'authenticationRequired': action1_auth_required,
-      'actions': action1_actions
-    } }}
-  option_two: >
-    {{ {
-      'enabled': action2_enabled,
-      'action': second_option,
-      'title': action2_title,
-      'icon': action2_icon,
-      'destructive': action2_destructive,
-      'authenticationRequired': action2_auth_required,
-      'actions': action2_actions
-    } }}
-  option_three: >
-    {{ {
-      'enabled': action3_enabled,
-      'action': third_option,
-      'title': action3_title,
-      'icon': action3_icon,
-      'destructive': action3_destructive,
-      'authenticationRequired': action3_auth_required,
-      'actions': action3_actions
-    } }}
-  notification_actions: >
-    {{ [option_one, option_two, option_three] | selectattr('enabled') | list }}
 
 # ================= Meta =================
 mode: queued
@@ -585,24 +545,70 @@ action:
                       max_tokens: !input max_tokens
                     response_variable: importance
 
-          # Level aus importance.response_text ableiten (oder Default)
+          # 2b) Vorschlag normalisieren
           - variables:
-              notification_level: >
-                {% set default = 'time-sensitive' %}
+              importance_suggested_level: >
+                {% set fallback = 'time-sensitive' %}
                 {% if importance is defined and importance.response_text %}
                   {% set t = importance.response_text | lower %}
                   {% if 'critical' in t %}critical
                   {% elif 'time-sensitive' in t or 'time sensitive' in t %}time-sensitive
                   {% elif 'active' in t %}active
                   {% elif 'passive' in t %}passive
-                  {% else %}{{ default }}{% endif %}
-                {% else %}{{ default }}{% endif %}
+                  {% else %}{{ fallback }}{% endif %}
+                {% else %}{{ fallback }}{% endif %}
 
-          # 3) Gate: Nur wichtige Ereignisse weiterverarbeiten? (>= time-sensitive)
+          # 2c) Endgültiges notification_level anhand Klassen-Bedingungen bestimmen (sonst: passive)
+          - variables:
+              notification_level: "passive"
+          - choose:
+              # CRITICAL: immer durchlassen
+              - conditions:
+                  - condition: template
+                    value_template: "{{ importance_suggested_level == 'critical' }}"
+                sequence:
+                  - variables:
+                      notification_level: "critical"
+
+              # TIME-SENSITIVE: nur wenn Bedingungen erfüllt, sonst passive
+              - conditions:
+                  - condition: template
+                    value_template: "{{ importance_suggested_level == 'time-sensitive' }}"
+                  - condition: and
+                    conditions: !input importance_conditions_timesensitive
+                sequence:
+                  - variables:
+                      notification_level: "time-sensitive"
+
+              # ACTIVE: nur wenn Bedingungen erfüllt, sonst passive
+              - conditions:
+                  - condition: template
+                    value_template: "{{ importance_suggested_level == 'active' }}"
+                  - condition: and
+                    conditions: !input importance_conditions_active
+                sequence:
+                  - variables:
+                      notification_level: "active"
+
+              # PASSIVE: optionale Bedingungen, bleibt passive
+              - conditions:
+                  - condition: template
+                    value_template: "{{ importance_suggested_level == 'passive' }}"
+                  - condition: and
+                    conditions: !input importance_conditions_passive
+                sequence:
+                  - variables:
+                      notification_level: "passive"
+
+          # 3) Gate: Nur wichtige Ereignisse weiterverarbeiten? (>= time-sensitive) + Gate-Bedingungen
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ importance_gate_enable and notification_level in ['passive','active'] }}"
+                    value_template: "{{ importance_gate_enable }}"
+                  - condition: and
+                    conditions: !input importance_gate_conditions
+                  - condition: template
+                    value_template: "{{ notification_level in ['passive','active'] }}"
                 sequence:
                   - if:
                       - condition: template
@@ -618,15 +624,15 @@ action:
                             {{ importance.response_text if (importance is defined and importance.response_text) else 'Bewegung erkannt (nicht analysiert)' }}
                   - stop: "Gate aktiv: Ereignis nicht wichtig genug ({{ notification_level }})."
 
-          # 3) Erste Push (mit dynamischem interruption-level aus notification_level)
+          # 3) Erste Push (mit dynamischem interruption-level + Klasse im Text)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag & dynamic level)"
             repeat:
-              for_each: "{{ device_name_map }}"
+              for_each: "{{ notify_devices | map('device_attr', 'name') | map('slugify') | map('regex_replace','^(.*)$','mobile_app_\\1') | list }}"
               sequence:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                    message: "Bewegung erkannt."
+                    message: "Bewegung erkannt ({{ notification_level }})."
                     data:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
@@ -635,7 +641,6 @@ action:
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
-                      actions: "{{ notification_actions }}"
                       push:
                         interruption-level: "{{ notification_level }}"
                         sound:
@@ -702,19 +707,19 @@ action:
                       Bewegung erkannt (nicht analysiert)
                     {% endif %}
 
-          # 5) Update-Push (falls Stream-Analyse gelaufen ist)
+          # 5) Update-Push (falls Stream-Analyse gelaufen ist) – Klasse bleibt angehängt
           - if:
               - condition: template
                 value_template: "{{ response is defined and response.response_text is defined }}"
             then:
               - alias: "Notify update (same Tag, Analyzer Response, dynamic level)"
                 repeat:
-                  for_each: "{{ device_name_map }}"
+                  for_each: "{{ notify_devices | map('device_attr', 'name') | map('slugify') | map('regex_replace','^(.*)$','mobile_app_\\1') | list }}"
                   sequence:
                     - service: "notify.{{ repeat.item }}"
                       data:
                         title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                        message: "{{ response.response_text }}"
+                        message: "{{ response.response_text }} ({{ notification_level }})"
                         data:
                           url: !input tap_navigate
                           clickAction: !input tap_navigate
@@ -723,7 +728,6 @@ action:
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
-                          actions: "{{ notification_actions }}"
                           push:
                             interruption-level: "{{ notification_level }}"
                             sound:
@@ -731,42 +735,5 @@ action:
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_level == 'critical' }}"
 
-          # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: >
-                      {{ (actions_wait_timeout.hours + actions_wait_timeout.minutes + actions_wait_timeout.seconds) > 0 }}
-                sequence:
-                  - wait_for_trigger:
-                      - platform: event
-                        event_type: mobile_app_notification_action
-                        event_data:
-                          action: "{{ first_option }}"
-                      - platform: event
-                        event_type: mobile_app_notification_action
-                        event_data:
-                          action: "{{ second_option }}"
-                      - platform: event
-                        event_type: mobile_app_notification_action
-                        event_data:
-                          action: "{{ third_option }}"
-                    timeout: "{{ actions_wait_timeout }}"
-                    continue_on_timeout: true
-
-                  - choose:
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == first_option }}"
-                        sequence: !input action1_actions
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == second_option }}"
-                        sequence: !input action2_actions
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == third_option }}"
-                        sequence: !input action3_actions
-
-  # 7) Globaler Cooldown
+  # 6) Globaler Cooldown
   - delay: !input cooldown
