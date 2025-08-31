@@ -504,38 +504,40 @@ variables:
 
   # Option-Dicts (für iOS-Actions im Push)
   option_one: >
+    {% set enabled = action1_enabled %}
     {{ {
-      'enabled': (states('input_boolean.dummy') or none) is none and (false) is not true or true and (true if (false) else true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true) and (true),
+      'enabled': enabled,
       'action': first_option,
-      'title': !input action1_title,
-      'icon': !input action1_icon,
-      'destructive': !input action1_destructive,
-      'authenticationRequired': !input action1_auth_required
+      'title': action1_title,
+      'icon': action1_icon,
+      'destructive': action1_destructive,
+      'authenticationRequired': action1_auth_required
     } }}
+
   option_two: >
+    {% set enabled = action2_enabled %}
     {{ {
-      'enabled': true,
+      'enabled': enabled,
       'action': second_option,
-      'title': !input action2_title,
-      'icon': !input action2_icon,
-      'destructive': !input action2_destructive,
-      'authenticationRequired': !input action2_auth_required
+      'title': action2_title,
+      'icon': action2_icon,
+      'destructive': action2_destructive,
+      'authenticationRequired': action2_auth_required
     } }}
+
   option_three: >
+    {% set enabled = action3_enabled %}
     {{ {
-      'enabled': true,
+      'enabled': enabled,
       'action': third_option,
-      'title': !input action3_title,
-      'icon': !input action3_icon,
-      'destructive': !input action3_destructive,
-      'authenticationRequired': !input action3_auth_required
+      'title': action3_title,
+      'icon': action3_icon,
+      'destructive': action3_destructive,
+      'authenticationRequired': action3_auth_required
     } }}
+
   notification_actions: >
-    {{ [
-      (option_one if ( !is_state('sensor._', 'x') and ( !is_state('sensor.__', 'x') ) ) else option_one),
-      option_two,
-      option_three
-    ] | selectattr('enabled') | list }}
+    {{ [option_one, option_two, option_three] | selectattr('enabled') | list }}
 
 # ================= Meta =================
 mode: queued
