@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.3.9"
+  name: "Camera Event Notification 1.4.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -502,43 +502,6 @@ variables:
     {% endfor %}
     {{ ns.device_names }}
 
-  # Option-Dicts (für iOS-Actions im Push)
-  option_one: >
-    {% set enabled = action1_enabled %}
-    {{ {
-      'enabled': enabled,
-      'action': first_option,
-      'title': action1_title,
-      'icon': action1_icon,
-      'destructive': action1_destructive,
-      'authenticationRequired': action1_auth_required
-    } }}
-
-  option_two: >
-    {% set enabled = action2_enabled %}
-    {{ {
-      'enabled': enabled,
-      'action': second_option,
-      'title': action2_title,
-      'icon': action2_icon,
-      'destructive': action2_destructive,
-      'authenticationRequired': action2_auth_required
-    } }}
-
-  option_three: >
-    {% set enabled = action3_enabled %}
-    {{ {
-      'enabled': enabled,
-      'action': third_option,
-      'title': action3_title,
-      'icon': action3_icon,
-      'destructive': action3_destructive,
-      'authenticationRequired': action3_auth_required
-    } }}
-
-  notification_actions: >
-    {{ [option_one, option_two, option_three] | selectattr('enabled') | list }}
-
 # ================= Meta =================
 mode: queued
 max: 25
@@ -696,7 +659,36 @@ action:
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
-                      actions: "{{ notification_actions }}"
+                      actions: >
+                        {% set out = [] %}
+                        {% if action1_enabled %}
+                          {% set _ = out.append({
+                            'action': first_option,
+                            'title': action1_title,
+                            'icon': action1_icon,
+                            'destructive': action1_destructive,
+                            'authenticationRequired': action1_auth_required
+                          }) %}
+                        {% endif %}
+                        {% if action2_enabled %}
+                          {% set _ = out.append({
+                            'action': second_option,
+                            'title': action2_title,
+                            'icon': action2_icon,
+                            'destructive': action2_destructive,
+                            'authenticationRequired': action2_auth_required
+                          }) %}
+                        {% endif %}
+                        {% if action3_enabled %}
+                          {% set _ = out.append({
+                            'action': third_option,
+                            'title': action3_title,
+                            'icon': action3_icon,
+                            'destructive': action3_destructive,
+                            'authenticationRequired': action3_auth_required
+                          }) %}
+                        {% endif %}
+                        {{ out }}
                       push:
                         interruption-level: "{{ notification_level }}"
                         sound:
@@ -763,7 +755,7 @@ action:
                       Bewegung erkannt (nicht analysiert)
                     {% endif %}
 
-          # 5) Update-Push (falls Stream-Analyse gelaufen ist) – Klasse bleibt angehängt
+          # 5) Update-Push (falls Stream-Analyse gelaufen ist) – Klasse bleibt angehängt + Actions erneut
           - if:
               - condition: template
                 value_template: "{{ response is defined and response.response_text is defined }}"
@@ -784,7 +776,36 @@ action:
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
-                          actions: "{{ notification_actions }}"
+                          actions: >
+                            {% set out = [] %}
+                            {% if action1_enabled %}
+                              {% set _ = out.append({
+                                'action': first_option,
+                                'title': action1_title,
+                                'icon': action1_icon,
+                                'destructive': action1_destructive,
+                                'authenticationRequired': action1_auth_required
+                              }) %}
+                            {% endif %}
+                            {% if action2_enabled %}
+                              {% set _ = out.append({
+                                'action': second_option,
+                                'title': action2_title,
+                                'icon': action2_icon,
+                                'destructive': action2_destructive,
+                                'authenticationRequired': action2_auth_required
+                              }) %}
+                            {% endif %}
+                            {% if action3_enabled %}
+                              {% set _ = out.append({
+                                'action': third_option,
+                                'title': action3_title,
+                                'icon': action3_icon,
+                                'destructive': action3_destructive,
+                                'authenticationRequired': action3_auth_required
+                              }) %}
+                            {% endif %}
+                            {{ out }}
                           push:
                             interruption-level: "{{ notification_level }}"
                             sound:
