@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.6"
+  name: "Camera Event Notification 1.6.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -12,7 +12,7 @@ blueprint:
     Bei Debug aktiv wird bei 'passive' eine mehrzeilige Trace-Zusammenfassung anstelle der normalen Push gesendet.
 
   domain: automation
-  source_url: https://raw.githubusercontent.com/michaelf988/ha-cam-snapshot/refs/heads/main/ha-cam-snapshot.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
   input:
 
@@ -315,7 +315,7 @@ blueprint:
             number:
               min: 0
               max: 600
-              unit_of_measurement: seconds
+          unit_of_measurement: seconds
 
         # ----- iOS Camera Stream -----
         ios_camera_stream_enable:
@@ -642,15 +642,12 @@ action:
           - variables:
               notification_level: "passive"
           - choose:
-              # CRITICAL: immer durchlassen
               - conditions:
                   - condition: template
                     value_template: "{{ importance_suggested_level == 'critical' }}"
                 sequence:
                   - variables:
                       notification_level: "critical"
-
-              # TIME-SENSITIVE: nur wenn Bedingungen erfüllt, sonst passive
               - conditions:
                   - condition: template
                     value_template: "{{ importance_suggested_level == 'time-sensitive' }}"
@@ -659,8 +656,6 @@ action:
                 sequence:
                   - variables:
                       notification_level: "time-sensitive"
-
-              # ACTIVE: nur wenn Bedingungen erfüllt, sonst passive
               - conditions:
                   - condition: template
                     value_template: "{{ importance_suggested_level == 'active' }}"
@@ -669,8 +664,6 @@ action:
                 sequence:
                   - variables:
                       notification_level: "active"
-
-              # PASSIVE: optionale Bedingungen, bleibt passive
               - conditions:
                   - condition: template
                     value_template: "{{ importance_suggested_level == 'passive' }}"
@@ -736,12 +729,6 @@ action:
                       clickAction: !input tap_navigate
                       tag: "{{ notification_tag }}"
                       group: "cams"
-                      {% if ios_camera_stream_enable %}
-                      {% if ios_camera_stream_run_conditions|length == 0 %}
-                      entity_id: "{{ camera_entity_snapshot }}"
-                      {% else %}
-                      {% endif %}
-                      {% endif %}
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
@@ -776,15 +763,12 @@ action:
                         {% endif %}
                         {{ out }}
                       push:
-                        {% if ios_camera_stream_enable and ios_camera_stream_legacy_category %}
-                        category: camera
-                        {% endif %}
                         interruption-level: "{{ notification_level }}"
                         sound:
                           name: "{{ notification_sound }}"
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_level == 'critical' }}"
-                # Bedingte Setzung entity_id für Stream nach conditions (Workaround, da data-Template eingeschränkt)
+                # (A) entity_id für Camera Stream nachschieben (separater Call, gleicher Tag)
                 - choose:
                     - conditions:
                         - condition: template
@@ -798,13 +782,27 @@ action:
                             data:
                               tag: "{{ notification_tag }}"
                               entity_id: "{{ camera_entity_snapshot }}"
+                # (B) Legacy push.category=camera nachschieben (falls nötig)
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ ios_camera_stream_enable and ios_camera_stream_legacy_category }}"
+                        - condition: and
+                          conditions: !input ios_camera_stream_run_conditions
+                      sequence:
+                        - service: "notify.{{ repeat.item }}"
+                          data:
+                            message: ""
+                            data:
+                              tag: "{{ notification_tag }}"
+                              push:
+                                category: camera
 
           # 4) AI-Stream-Analyse (einmalig): erzwungen bei 'critical' ODER normal via ai_enable+conditions
           - choose:
               - conditions:
                   - condition: or
                     conditions:
-                      # a) erzwungen bei critical
                       - condition: and
                         conditions:
                           - condition: template
@@ -813,7 +811,6 @@ action:
                             value_template: "{{ importance_is_critical }}"
                           - condition: template
                             value_template: "{{ camera_entity_snapshot != '' }}"
-                      # b) normal via ai_enable + conditions
                       - condition: and
                         conditions:
                           - condition: template
@@ -838,7 +835,7 @@ action:
                       max_tokens: !input max_tokens
                     response_variable: response
 
-          # 5) Remember: immer (falls aktiviert) – nutzt Stream- oder Importance-Text
+          # 5) Remember: immer (falls aktiviert)
           - if:
               - condition: template
                 value_template: "{{ ai_remember_enable }}"
@@ -858,7 +855,7 @@ action:
                       Bewegung erkannt (nicht analysiert)
                     {% endif %}
 
-          # 5) Update-Push (falls Stream-Analyse gelaufen ist) – Klasse bleibt angehängt + Actions erneut
+          # 5) Update-Push (falls Stream-Analyse gelaufen ist)
           - if:
               - condition: template
                 value_template: "{{ response is defined and response.response_text is defined }}"
@@ -876,12 +873,6 @@ action:
                           clickAction: !input tap_navigate
                           tag: "{{ notification_tag }}"
                           group: "cams"
-                          {% if ios_camera_stream_enable %}
-                          {% if ios_camera_stream_run_conditions|length == 0 %}
-                          entity_id: "{{ camera_entity_snapshot }}"
-                          {% else %}
-                          {% endif %}
-                          {% endif %}
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
@@ -916,15 +907,12 @@ action:
                             {% endif %}
                             {{ out }}
                           push:
-                            {% if ios_camera_stream_enable and ios_camera_stream_legacy_category %}
-                            category: camera
-                            {% endif %}
                             interruption-level: "{{ notification_level }}"
                             sound:
                               name: "{{ notification_sound }}"
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_level == 'critical' }}"
-                    # Bedingte Setzung entity_id für Stream nach conditions
+                    # (A) entity_id für Camera Stream nachschieben (separater Call, gleicher Tag)
                     - choose:
                         - conditions:
                             - condition: template
@@ -938,6 +926,21 @@ action:
                                 data:
                                   tag: "{{ notification_tag }}"
                                   entity_id: "{{ camera_entity_snapshot }}"
+                    # (B) Legacy push.category=camera nachschieben (falls nötig)
+                    - choose:
+                        - conditions:
+                            - condition: template
+                              value_template: "{{ ios_camera_stream_enable and ios_camera_stream_legacy_category }}"
+                            - condition: and
+                              conditions: !input ios_camera_stream_run_conditions
+                          sequence:
+                            - service: "notify.{{ repeat.item }}"
+                              data:
+                                message: ""
+                                data:
+                                  tag: "{{ notification_tag }}"
+                                  push:
+                                    category: camera
 
   # 6) Globaler Cooldown
   - delay: !input cooldown
