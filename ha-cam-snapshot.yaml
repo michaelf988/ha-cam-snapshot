@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.5.0"
+  name: "Camera Event Notification 1.6"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -8,6 +8,9 @@ blueprint:
     optionaler Live-Analyse (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember)
     und Update der Push via Tag. Gate mit Zusatzbedingungen; dynamisches Interruption-Level aus der
     Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat abfangbar).
+    Optionaler iOS Camera Stream (Vorschau/erweiterte MJPEG-Ansicht) mit Bedingungen.
+    Bei Debug aktiv wird bei 'passive' eine mehrzeilige Trace-Zusammenfassung anstelle der normalen Push gesendet.
+
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
@@ -246,7 +249,7 @@ blueprint:
     # =======================
     notifications_section:
       name: "Benachrichtigungen"
-      description: "Zustellung, Inhalte, iOS-Optionen und Action-Buttons."
+      description: "Zustellung, Inhalte, iOS-Optionen, Camera Stream und Action-Buttons."
       icon: mdi:bell
       collapsed: true
       input:
@@ -313,6 +316,26 @@ blueprint:
               min: 0
               max: 600
               unit_of_measurement: seconds
+
+        # ----- iOS Camera Stream -----
+        ios_camera_stream_enable:
+          name: "iOS Camera Stream in Push anzeigen"
+          description: "Bei erweiterter Push wird ein MJPEG-Stream angezeigt (wenn Kamera es unterstützt)."
+          default: false
+          selector:
+            boolean:
+        ios_camera_stream_run_conditions:
+          name: "Bedingungen für Camera Stream"
+          description: "Alle Bedingungen müssen erfüllt sein, damit der Camera Stream gesetzt wird."
+          default: []
+          selector:
+            condition:
+        ios_camera_stream_legacy_category:
+          name: "Legacy: push.category=camera setzen"
+          description: "Für iOS-Versionen vor 2021.5 erforderlich."
+          default: false
+          selector:
+            boolean:
 
         # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
@@ -410,8 +433,8 @@ blueprint:
           selector:
             duration: {}
         debug_notify_passive:
-          name: "Debug: Push auch bei 'passive' senden"
-          description: "Wenn aktiv, wird auch bei PASSIVE eine Push gesendet (sofern Gate nicht greift)."
+          name: "Debug: Bei 'passive' Debug-Push statt normaler Push"
+          description: "Mehrzeilige Trace-Zusammenfassung wird gesendet, wenn Ereignis 'passive' ist."
           default: false
           selector:
             boolean:
@@ -467,6 +490,11 @@ variables:
   cooldown: !input cooldown
   debug_notify_passive: !input debug_notify_passive
 
+  # iOS Camera Stream
+  ios_camera_stream_enable: !input ios_camera_stream_enable
+  ios_camera_stream_run_conditions: !input ios_camera_stream_run_conditions
+  ios_camera_stream_legacy_category: !input ios_camera_stream_legacy_category
+
   # Kamera aus Trigger ableiten (Sensor→Index→Kamera)
   camera_entity_snapshot: >
     {% if trigger is defined and trigger.entity_id %}
@@ -483,7 +511,7 @@ variables:
       {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
     {% endif %}
 
-  # Friendly Name + Pfade/Dateinamen (LLMVISION-DIR)
+  # Friendly Name + Pfade/Dateinamen
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
   snapshot_dir_fs_final: "{{ (snapshot_dir_fs_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
@@ -676,25 +704,44 @@ action:
                             {{ importance.response_text if (importance is defined and importance.response_text) else 'Bewegung erkannt (nicht analysiert)' }}
                   - stop: "Gate aktiv: Ereignis nicht wichtig genug ({{ notification_level }})."
 
-          # 3) Erste Push (mit dynamischem interruption-level + Klasse im Text + Actions)
-          - alias: "Notify initial (iOS, Snapshot Attachment, with Tag & dynamic level)"
+          # 3) Erste Push (normal ODER Debug-Zusammenfassung bei 'passive' + Debug)
+          - alias: "Notify initial (iOS, Tag, dynamic level, optional stream)"
             repeat:
               for_each: "{{ notify_services_all }}"
               sequence:
+                - variables:
+                    _send_debug: "{{ debug_notify_passive and notification_level == 'passive' }}"
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
                     message: >
-                      {% if notification_level == 'passive' and not debug_notify_passive %}
-                        {{ 'Bewegung erkannt (gefiltert)' }}
+                      {% if _send_debug %}
+                      Debug Trace:
+                      • Trigger Entity: {{ (trigger.entity_id if (trigger is defined and trigger.entity_id) else 'n/a') }}
+                      • Trigger ID: {{ (trigger.id if (trigger is defined and trigger.id) else 'n/a') }}
+                      • Kamera-Entität: {{ camera_entity_snapshot }}
+                      • Snapshot: {{ snapshot_filename }}
+                      • Importance-Roh: {{ importance.response_text if (importance is defined and importance.response_text) else 'n/a' }}
+                      • Finales Level: {{ notification_level }}
+                      • Gate: {% if importance_gate_enable %}{% if notification_level in ['passive','active'] %}stop{% else %}pass{% endif %}{% else %}off{% endif %}
+                      • Stream: {% if ai_force_on_critical and importance_is_critical %}forced{% elif response is defined and response.response_text is defined %}run{% else %}skip{% endif %}
+                      • Remember aktiv: {{ 'yes' if ai_remember_enable else 'no' }}
+                      • Targets: {{ (notify_services_all|length) }}
+                      • Actions aktiv: {{ (1 if action1_enabled else 0) + (1 if action2_enabled else 0) + (1 if action3_enabled else 0) }}
                       {% else %}
-                        {{ 'Bewegung erkannt (' ~ notification_level ~ ').' }}
+                      Bewegung erkannt ({{ notification_level }}).
                       {% endif %}
                     data:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
                       tag: "{{ notification_tag }}"
                       group: "cams"
+                      {% if ios_camera_stream_enable %}
+                      {% if ios_camera_stream_run_conditions|length == 0 %}
+                      entity_id: "{{ camera_entity_snapshot }}"
+                      {% else %}
+                      {% endif %}
+                      {% endif %}
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
@@ -702,7 +749,7 @@ action:
                         {% set out = [] %}
                         {% if action1_enabled %}
                           {% set _ = out.append({
-                            'action': first_option,
+                            'action': 'ACTION_1',
                             'title': action1_title,
                             'icon': action1_icon,
                             'destructive': action1_destructive,
@@ -711,7 +758,7 @@ action:
                         {% endif %}
                         {% if action2_enabled %}
                           {% set _ = out.append({
-                            'action': second_option,
+                            'action': 'ACTION_2',
                             'title': action2_title,
                             'icon': action2_icon,
                             'destructive': action2_destructive,
@@ -720,7 +767,7 @@ action:
                         {% endif %}
                         {% if action3_enabled %}
                           {% set _ = out.append({
-                            'action': third_option,
+                            'action': 'ACTION_3',
                             'title': action3_title,
                             'icon': action3_icon,
                             'destructive': action3_destructive,
@@ -729,11 +776,28 @@ action:
                         {% endif %}
                         {{ out }}
                       push:
+                        {% if ios_camera_stream_enable and ios_camera_stream_legacy_category %}
+                        category: camera
+                        {% endif %}
                         interruption-level: "{{ notification_level }}"
                         sound:
                           name: "{{ notification_sound }}"
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_level == 'critical' }}"
+                # Bedingte Setzung entity_id für Stream nach conditions (Workaround, da data-Template eingeschränkt)
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ ios_camera_stream_enable }}"
+                        - condition: and
+                          conditions: !input ios_camera_stream_run_conditions
+                      sequence:
+                        - service: "notify.{{ repeat.item }}"
+                          data:
+                            message: ""
+                            data:
+                              tag: "{{ notification_tag }}"
+                              entity_id: "{{ camera_entity_snapshot }}"
 
           # 4) AI-Stream-Analyse (einmalig): erzwungen bei 'critical' ODER normal via ai_enable+conditions
           - choose:
@@ -799,7 +863,7 @@ action:
               - condition: template
                 value_template: "{{ response is defined and response.response_text is defined }}"
             then:
-              - alias: "Notify update (same Tag, Analyzer Response, dynamic level)"
+              - alias: "Notify update (same Tag, Analyzer Response, dynamic level, optional stream)"
                 repeat:
                   for_each: "{{ notify_services_all }}"
                   sequence:
@@ -812,6 +876,12 @@ action:
                           clickAction: !input tap_navigate
                           tag: "{{ notification_tag }}"
                           group: "cams"
+                          {% if ios_camera_stream_enable %}
+                          {% if ios_camera_stream_run_conditions|length == 0 %}
+                          entity_id: "{{ camera_entity_snapshot }}"
+                          {% else %}
+                          {% endif %}
+                          {% endif %}
                           attachment:
                             url: "{{ snapshot_access_file_path }}"
                             content_type: JPEG
@@ -819,7 +889,7 @@ action:
                             {% set out = [] %}
                             {% if action1_enabled %}
                               {% set _ = out.append({
-                                'action': first_option,
+                                'action': 'ACTION_1',
                                 'title': action1_title,
                                 'icon': action1_icon,
                                 'destructive': action1_destructive,
@@ -828,7 +898,7 @@ action:
                             {% endif %}
                             {% if action2_enabled %}
                               {% set _ = out.append({
-                                'action': second_option,
+                                'action': 'ACTION_2',
                                 'title': action2_title,
                                 'icon': action2_icon,
                                 'destructive': action2_destructive,
@@ -837,7 +907,7 @@ action:
                             {% endif %}
                             {% if action3_enabled %}
                               {% set _ = out.append({
-                                'action': third_option,
+                                'action': 'ACTION_3',
                                 'title': action3_title,
                                 'icon': action3_icon,
                                 'destructive': action3_destructive,
@@ -846,11 +916,28 @@ action:
                             {% endif %}
                             {{ out }}
                           push:
+                            {% if ios_camera_stream_enable and ios_camera_stream_legacy_category %}
+                            category: camera
+                            {% endif %}
                             interruption-level: "{{ notification_level }}"
                             sound:
                               name: "{{ notification_sound }}"
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_level == 'critical' }}"
+                    # Bedingte Setzung entity_id für Stream nach conditions
+                    - choose:
+                        - conditions:
+                            - condition: template
+                              value_template: "{{ ios_camera_stream_enable }}"
+                            - condition: and
+                              conditions: !input ios_camera_stream_run_conditions
+                          sequence:
+                            - service: "notify.{{ repeat.item }}"
+                              data:
+                                message: ""
+                                data:
+                                  tag: "{{ notification_tag }}"
+                                  entity_id: "{{ camera_entity_snapshot }}"
 
   # 6) Globaler Cooldown
   - delay: !input cooldown
