@@ -12,7 +12,7 @@ blueprint:
     Bei Debug aktiv wird bei 'passive' eine mehrzeilige Trace-Zusammenfassung anstelle der normalen Push gesendet.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
+  source_url: https://raw.githubusercontent.com/michaelf988/ha-cam-snapshot/refs/heads/main/ha-cam-snapshot.yaml
 
   input:
 
