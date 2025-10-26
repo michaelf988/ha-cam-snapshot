@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.6.1"
+  name: "Camera Event Notification 1.6.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -315,7 +315,7 @@ blueprint:
             number:
               min: 0
               max: 600
-          unit_of_measurement: seconds
+              unit_of_measurement: seconds
 
         # ----- iOS Camera Stream -----
         ios_camera_stream_enable:
