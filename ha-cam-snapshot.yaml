@@ -1,14 +1,13 @@
 blueprint:
-  name: "Camera Event Notification 1.4.0"
+  name: "Camera Event Notification 1.5.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
-    iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer)
-    inkl. klassenabhängigen Bedingungen (passive/active/time-sensitive), optionaler Live-Analyse
-    (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember) und Update der Push via Tag.
-    Gate kann zusätzlich mit eigenen Bedingungen versehen werden. Nutzt den friendly_name der Kamera.
-    Interruption-Level wird dynamisch aus der Wichtigkeitsanalyse gesetzt. Enthält drei konfigurierbare Action-Buttons.
+    iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer),
+    optionaler Live-Analyse (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember)
+    und Update der Push via Tag. Gate mit Zusatzbedingungen; dynamisches Interruption-Level aus der
+    Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat abfangbar).
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
@@ -50,6 +49,41 @@ blueprint:
                 domain: binary_sensor
 
     # =======================
+    # SECTION: SPEICHERUNG
+    # =======================
+    storage_section:
+      name: "Speicherung"
+      description: "Dateinamen & Pfade für Snapshots."
+      icon: mdi:folder
+      collapsed: true
+      input:
+        timestamp_filenames:
+          name: "Zeitstempel-Dateinamen verwenden"
+          description: "Wenn aktiv, speichert jeden Snapshot als YYYY-MM-DD_HH-MM-SS.jpg."
+          default: true
+          selector:
+            boolean:
+        timestamp_format:
+          name: "Zeitstempel-Format"
+          description: "strftime-Format; Standard: %Y-%m-%d_%H-%M-%S"
+          default: "%Y-%m-%d_%H-%M-%S"
+          selector:
+            text:
+
+        snapshot_dir_fs:
+          name: "Basis-Pfad (Dateisystem)"
+          description: "Ohne Kamera-Slug; z. B. /config/www/llmvision"
+          default: "/config/www/llmvision"
+          selector:
+            text:
+        snapshot_dir_web:
+          name: "Basis-Pfad (Web)"
+          description: "Ohne Kamera-Slug; z. B. /local/llmvision"
+          default: "/local/llmvision"
+          selector:
+            text:
+
+    # =======================
     # SECTION: AI (Bild-/Stream-Analyse)
     # =======================
     ai_section:
@@ -85,7 +119,7 @@ blueprint:
             text:
               multiline: true
 
-        # Klassen-Bedingungen (greifen NUR, wenn die jeweilige Klasse vorgeschlagen wurde)
+        # Klassen-Bedingungen
         importance_conditions_passive:
           name: "Bedingungen für PASSIVE"
           description: "Optional – ändert nichts (bleibt passive), dient nur zu Tests/Transparenz."
@@ -231,6 +265,13 @@ blueprint:
               filter:
                 integration: mobile_app
 
+        notify_groups:
+          name: "Notify-Gruppen (optional)"
+          description: "Kommagetrennte Service-Namen ohne Leerzeichen, z. B.: notify.family,notify.ios_all"
+          default: ""
+          selector:
+            text:
+
         notification_time:
           name: "Zeit im Titel (optional)"
           default: ""
@@ -265,32 +306,13 @@ blueprint:
 
         delay_notification:
           name: "Notification Cooldown (seconds)"
+          description: "Lokaler Throttle: Verhindert unmittelbare Doppel-Trigger (prüft last_triggered)."
           default: 15
           selector:
             number:
               min: 0
               max: 600
               unit_of_measurement: seconds
-
-        cooldown:
-          name: "Global Cooldown"
-          default: { seconds: 20 }
-          selector:
-            duration: {}
-
-        # ----- Dateinamensschema -----
-        timestamp_filenames:
-          name: "Zeitstempel-Dateinamen verwenden"
-          description: "Wenn aktiv, speichert jeden Snapshot als YYYY-MM-DD_HH-MM-SS.jpg."
-          default: true
-          selector:
-            boolean:
-        timestamp_format:
-          name: "Zeitstempel-Format"
-          description: "strftime-Format; Standard: %Y-%m-%d_%H-%M-%S"
-          default: "%Y-%m-%d_%H-%M-%S"
-          selector:
-            text:
 
         # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
@@ -319,12 +341,6 @@ blueprint:
           default: false
           selector:
             boolean:
-        action1_actions:
-          name: "Option 1 – HA Action(s)"
-          description: "Aktionen, die bei Auswahl ausgeführt werden."
-          default: []
-          selector:
-            action:
 
         action2_enabled:
           name: "Option 2 aktiv"
@@ -351,11 +367,6 @@ blueprint:
           default: false
           selector:
             boolean:
-        action2_actions:
-          name: "Option 2 – HA Action(s)"
-          default: []
-          selector:
-            action:
 
         action3_enabled:
           name: "Option 3 aktiv"
@@ -382,18 +393,6 @@ blueprint:
           default: false
           selector:
             boolean:
-        action3_actions:
-          name: "Option 3 – HA Action(s)"
-          default: []
-          selector:
-            action:
-
-        actions_wait_timeout:
-          name: "Warten auf Antwort (Timeout)"
-          description: "Wenn > 0, wartet die Automation auf mobile_app_notification_action und führt die zugehörigen HA-Aktionen aus."
-          default: { minutes: 0, seconds: 0 }
-          selector:
-            duration: {}
 
     # =======================
     # SECTION: SONSTIGES
@@ -403,7 +402,19 @@ blueprint:
       description: "Diverse Einstellungen."
       icon: mdi:cog
       collapsed: true
-      input: {}
+      input:
+        cooldown:
+          name: "Global Cooldown"
+          description: "Pausiert die Automation am Ende (unabhängig vom lokalen Throttle)."
+          default: { seconds: 20 }
+          selector:
+            duration: {}
+        debug_notify_passive:
+          name: "Debug: Push auch bei 'passive' senden"
+          description: "Wenn aktiv, wird auch bei PASSIVE eine Push gesendet (sofern Gate nicht greift)."
+          default: false
+          selector:
+            boolean:
 
 # ================= Variables =================
 variables:
@@ -419,6 +430,7 @@ variables:
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
+  notify_groups_raw: !input notify_groups
 
   # AI inputs
   importance_enable: !input importance_enable
@@ -445,9 +457,15 @@ variables:
   max_tokens: !input max_tokens
   ai_remember_enable: !input ai_remember_enable
 
-  # Notif: timestamp
+  # Storage inputs
   timestamp_filenames: !input timestamp_filenames
   timestamp_format: !input timestamp_format
+  snapshot_dir_fs_base: !input snapshot_dir_fs
+  snapshot_dir_web_base: !input snapshot_dir_web
+
+  # Sonstiges
+  cooldown: !input cooldown
+  debug_notify_passive: !input debug_notify_passive
 
   # Kamera aus Trigger ableiten (Sensor→Index→Kamera)
   camera_entity_snapshot: >
@@ -468,11 +486,11 @@ variables:
   # Friendly Name + Pfade/Dateinamen (LLMVISION-DIR)
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
-  snapshot_dir_fs: "/config/www/llmvision/{{ camera_file_path }}"
-  snapshot_dir_web: "/local/llmvision/{{ camera_file_path }}"
+  snapshot_dir_fs_final: "{{ (snapshot_dir_fs_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
+  snapshot_dir_web_final: "{{ (snapshot_dir_web_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
   snapshot_filename: "{{ (timestamp_filenames and now().strftime(timestamp_format) or 'last_motion') ~ '.jpg' }}"
-  file_path: "{{ snapshot_dir_fs ~ '/' ~ snapshot_filename }}"
-  snapshot_access_file_path: "{{ snapshot_dir_web ~ '/' ~ snapshot_filename }}"
+  file_path: "{{ snapshot_dir_fs_final ~ '/' ~ snapshot_filename }}"
+  snapshot_access_file_path: "{{ snapshot_dir_web_final ~ '/' ~ snapshot_filename }}"
 
   # Notification-Metadaten
   label: "Bewegung erkannt"
@@ -485,10 +503,10 @@ variables:
       {{ 'critical' in (importance.response_text | lower) }}
     {% else %}false{% endif %}
 
-  # Action-IDs je Option (eindeutig pro Kamera)
-  first_option: "{{ camera_file_path ~ '_ACTION_1' }}"
-  second_option: "{{ camera_file_path ~ '_ACTION_2' }}"
-  third_option:  "{{ camera_file_path ~ '_ACTION_3' }}"
+  # Action-IDs (fix für externe Automationen)
+  first_option: "ACTION_1"
+  second_option: "ACTION_2"
+  third_option:  "ACTION_3"
 
   # Robuste Liste gültiger mobile_app Notify-Services
   device_name_map: >
@@ -501,6 +519,22 @@ variables:
       {% endif %}
     {% endfor %}
     {{ ns.device_names }}
+
+  # Notify-Gruppen aus Textfeld (notify.xyz → nur Suffix als Service-Name)
+  notify_group_services: >
+    {% set raw = notify_groups_raw | default('', true) %}
+    {% set parts = raw.split(',') if raw|length>0 else [] %}
+    {% set cleaned = [] %}
+    {% for p in parts %}
+      {% set s = p|trim %}
+      {% if s and s.startswith('notify.') and (s|length > 7) %}
+        {% set cleaned = cleaned + [ s[7:] ] %}
+      {% endif %}
+    {% endfor %}
+    {{ cleaned }}
+
+  # Gesamte Ziel-Services (Geräte + Gruppen)
+  notify_services_all: "{{ (device_name_map + notify_group_services) }}"
 
 # ================= Meta =================
 mode: queued
@@ -645,12 +679,17 @@ action:
           # 3) Erste Push (mit dynamischem interruption-level + Klasse im Text + Actions)
           - alias: "Notify initial (iOS, Snapshot Attachment, with Tag & dynamic level)"
             repeat:
-              for_each: "{{ device_name_map }}"
+              for_each: "{{ notify_services_all }}"
               sequence:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                    message: "Bewegung erkannt ({{ notification_level }})."
+                    message: >
+                      {% if notification_level == 'passive' and not debug_notify_passive %}
+                        {{ 'Bewegung erkannt (gefiltert)' }}
+                      {% else %}
+                        {{ 'Bewegung erkannt (' ~ notification_level ~ ').' }}
+                      {% endif %}
                     data:
                       url: !input tap_navigate
                       clickAction: !input tap_navigate
@@ -762,7 +801,7 @@ action:
             then:
               - alias: "Notify update (same Tag, Analyzer Response, dynamic level)"
                 repeat:
-                  for_each: "{{ device_name_map }}"
+                  for_each: "{{ notify_services_all }}"
                   sequence:
                     - service: "notify.{{ repeat.item }}"
                       data:
@@ -813,42 +852,5 @@ action:
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_level == 'critical' }}"
 
-          # 6) Optional: Auf Antwort der Action-Buttons warten und HA-Aktionen ausführen
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: >
-                      {{ (actions_wait_timeout.hours + actions_wait_timeout.minutes + actions_wait_timeout.seconds) > 0 }}
-                sequence:
-                  - wait_for_trigger:
-                      - platform: event
-                        event_type: mobile_app_notification_action
-                        event_data:
-                          action: "{{ first_option }}"
-                      - platform: event
-                        event_type: mobile_app_notification_action
-                        event_data:
-                          action: "{{ second_option }}"
-                      - platform: event
-                        event_type: mobile_app_notification_action
-                        event_data:
-                          action: "{{ third_option }}"
-                    timeout: !input actions_wait_timeout
-                    continue_on_timeout: true
-
-                  - choose:
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == first_option }}"
-                        sequence: !input action1_actions
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == second_option }}"
-                        sequence: !input action2_actions
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ wait.trigger is not none and wait.trigger.event.data.action == third_option }}"
-                        sequence: !input action3_actions
-
-  # 7) Globaler Cooldown
+  # 6) Globaler Cooldown
   - delay: !input cooldown
