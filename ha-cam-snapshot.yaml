@@ -1,15 +1,15 @@
 blueprint:
-  name: "Camera Event Notification 1.6.2"
+  name: "Camera Event Notification 1.6.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer),
     optionaler Live-Analyse (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember)
-    und Update der Push via Tag. Gate mit Zusatzbedingungen; dynamisches Interruption-Level aus der
-    Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat abfangbar).
+    und Update der Push via Tag. Gate mit konfigurierbarem Threshold & Zusatzbedingungen; dynamisches
+    Interruption-Level aus der Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat abfangbar).
     Optionaler iOS Camera Stream (Vorschau/erweiterte MJPEG-Ansicht) mit Bedingungen.
-    Bei Debug aktiv wird bei 'passive' eine mehrzeilige Trace-Zusammenfassung anstelle der normalen Push gesendet.
+    Bei Debug aktiv wird bei 'passive' eine kompakte Trace-Zusammenfassung anstelle der normalen Push gesendet.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
@@ -146,11 +146,24 @@ blueprint:
         importance_gate_enable:
           name: "Nur wichtige Ereignisse weiterverarbeiten (Gate)"
           description: >
-            Wenn aktiv, wird die Automation NUR fortgesetzt, wenn das Ereignis mindestens "time-sensitive" ist.
-            Bei weniger Wichtigkeit (passive/active) wird die Pipeline gestoppt – ABER 'remember' läuft trotzdem (falls aktiviert).
+            Wenn aktiv, wird die Automation nur fortgesetzt, wenn das Ereignis mindestens dem gewählten Threshold entspricht.
+            Bei weniger Wichtigkeit wird die Pipeline gestoppt – ABER 'remember' läuft trotzdem (falls aktiviert).
           default: false
           selector:
             boolean:
+
+        importance_gate_min_level:
+          name: "Gate-Threshold (ab diesem Level weiterverarbeiten)"
+          default: "time-sensitive"
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
         importance_gate_conditions:
           name: "Gate: Zusätzliche Bedingungen"
           description: "Diese Bedingungen müssen zusätzlich erfüllt sein, damit das Gate greift."
@@ -434,7 +447,7 @@ blueprint:
             duration: {}
         debug_notify_passive:
           name: "Debug: Bei 'passive' Debug-Push statt normaler Push"
-          description: "Mehrzeilige Trace-Zusammenfassung wird gesendet, wenn Ereignis 'passive' ist."
+          description: "Kompakte Trace-Zusammenfassung wird gesendet, wenn Ereignis 'passive' ist."
           default: false
           selector:
             boolean:
@@ -465,6 +478,7 @@ variables:
   importance_conditions_timesensitive: !input importance_conditions_timesensitive
 
   importance_gate_enable: !input importance_gate_enable
+  importance_gate_min_level: !input importance_gate_min_level
   importance_gate_conditions: !input importance_gate_conditions
 
   ai_force_on_critical: !input ai_force_on_critical
@@ -524,6 +538,9 @@ variables:
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
   notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
+
+  # Level-Ranking (für Gate-Threshold)
+  level_rank: "{{ {'passive':0,'active':1,'time-sensitive':2,'critical':3} }}"
 
   # Kritikalität: helper (für OR in Schritt 4)
   importance_is_critical: >
@@ -673,7 +690,7 @@ action:
                   - variables:
                       notification_level: "passive"
 
-          # 3) Gate: Nur wichtige Ereignisse weiterverarbeiten? (>= time-sensitive) + Gate-Bedingungen
+          # 3) Gate: Threshold + Zusatzbedingungen – stoppe, wenn Level unter Threshold
           - choose:
               - conditions:
                   - condition: template
@@ -681,7 +698,8 @@ action:
                   - condition: and
                     conditions: !input importance_gate_conditions
                   - condition: template
-                    value_template: "{{ notification_level in ['passive','active'] }}"
+                    value_template: >
+                      {{ (level_rank[notification_level]|default(-1)) < (level_rank[importance_gate_min_level]|default(0)) }}
                 sequence:
                   - if:
                       - condition: template
@@ -695,7 +713,7 @@ action:
                           camera_entity: "{{ camera_entity_snapshot }}"
                           summary: >
                             {{ importance.response_text if (importance is defined and importance.response_text) else 'Bewegung erkannt (nicht analysiert)' }}
-                  - stop: "Gate aktiv: Ereignis nicht wichtig genug ({{ notification_level }})."
+                  - stop: "Gate aktiv: Level '{{ notification_level }}' < Threshold '{{ importance_gate_min_level }}'."
 
           # 3) Erste Push (normal ODER Debug-Zusammenfassung bei 'passive' + Debug)
           - alias: "Notify initial (iOS, Tag, dynamic level, optional stream)"
@@ -709,18 +727,7 @@ action:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
                     message: >
                       {% if _send_debug %}
-                      Debug Trace:
-                      • Trigger Entity: {{ (trigger.entity_id if (trigger is defined and trigger.entity_id) else 'n/a') }}
-                      • Trigger ID: {{ (trigger.id if (trigger is defined and trigger.id) else 'n/a') }}
-                      • Kamera-Entität: {{ camera_entity_snapshot }}
-                      • Snapshot: {{ snapshot_filename }}
-                      • Importance-Roh: {{ importance.response_text if (importance is defined and importance.response_text) else 'n/a' }}
-                      • Finales Level: {{ notification_level }}
-                      • Gate: {% if importance_gate_enable %}{% if notification_level in ['passive','active'] %}stop{% else %}pass{% endif %}{% else %}off{% endif %}
-                      • Stream: {% if ai_force_on_critical and importance_is_critical %}forced{% elif response is defined and response.response_text is defined %}run{% else %}skip{% endif %}
-                      • Remember aktiv: {{ 'yes' if ai_remember_enable else 'no' }}
-                      • Targets: {{ (notify_services_all|length) }}
-                      • Actions aktiv: {{ (1 if action1_enabled else 0) + (1 if action2_enabled else 0) + (1 if action3_enabled else 0) }}
+                      DBG {{ notification_level }} — trig={{ (trigger.entity_id if (trigger is defined and trigger.entity_id) else 'n/a') }}; cam={{ camera_entity_snapshot }}; snap={{ snapshot_filename }}; imp="{{ importance.response_text if (importance is defined and importance.response_text) else 'n/a' }}"; gate={% if importance_gate_enable %}{% if (level_rank[notification_level]|default(-1)) < (level_rank[importance_gate_min_level]|default(0)) %}stop{% else %}pass{% endif %}{% else %}off{% endif %}; stream={% if ai_force_on_critical and importance_is_critical %}forced{% elif response is defined and response.response_text is defined %}run{% else %}skip{% endif %}; remember={{ 'yes' if ai_remember_enable else 'no' }}; acts={{ (1 if action1_enabled else 0) + (1 if action2_enabled else 0) + (1 if action3_enabled else 0) }}.
                       {% else %}
                       Bewegung erkannt ({{ notification_level }}).
                       {% endif %}
