@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.6.3"
+  name: "Camera Event Notification 1.7.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -7,9 +7,10 @@ blueprint:
     iOS-Kamera-Benachrichtigung mit Snapshot, Wichtigkeitsanalyse (llmvision.image_analyzer),
     optionaler Live-Analyse (llmvision.stream_analyzer), automatischem Erinnern (llmvision.remember)
     und Update der Push via Tag. Gate mit konfigurierbarem Threshold & Zusatzbedingungen; dynamisches
-    Interruption-Level aus der Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat abfangbar).
-    Optionaler iOS Camera Stream (Vorschau/erweiterte MJPEG-Ansicht) mit Bedingungen.
-    Bei Debug aktiv wird bei 'passive' eine kompakte Trace-Zusammenfassung anstelle der normalen Push gesendet.
+    Interruption-Level aus der Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat
+    abfangbar). Optionaler iOS Camera Stream (Vorschau/erweiterte MJPEG-Ansicht) mit Bedingungen.
+    Alarm-Modus: bei wichtigen Ereignissen mehrere Pushs mit Ton in kurzem Abstand. Bei Debug aktiv
+    wird bei 'passive' eine kompakte Trace-Zusammenfassung anstelle der normalen Push gesendet.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
@@ -113,11 +114,19 @@ blueprint:
           name: "Prompt für Wichtigkeits-Check"
           description: >
             Liefert genau eines der Wörter: passive, active, time-sensitive, critical.
-            Mapping: passive=keine Person; active=wahrscheinlich Person; time-sensitive=definitiv Person; critical=Person ODER gefährliche Situation.
+            Mapping: passive=keine Person; active=wahrscheinlich Person; time-sensitive=definitiv Person;
+            critical=Person ODER gefährliche Situation (oder Nacht).
           default: >
-            Classify the security event based on this image. Respond with exactly one of:
-            "passive" (no person), "active" (probably a person), "time-sensitive" (definitely a person),
-            or "critical" (definitely a person OR dangerous situation like burglary or fire). No extra words.
+            The current time is {{ now().strftime('%H:%M') }}.
+            Classify the security relevance of this camera image using ONLY one of the following four labels:
+
+            "passive" – no person, no threat, likely irrelevant event.
+            "active" – possible person or unclear object, not immediately dangerous.
+            "time-sensitive" – definitely a person, or a clearly relevant moving object.
+            "critical" – a person in a potentially dangerous context (e.g. burglary, forced entry, suspicious behavior, fire),
+                          OR any person detected during night hours (00:00–05:00).
+
+            Return ONE of these labels ONLY, without any additional text.
           selector:
             text:
               multiline: true
@@ -147,7 +156,7 @@ blueprint:
           name: "Nur wichtige Ereignisse weiterverarbeiten (Gate)"
           description: >
             Wenn aktiv, wird die Automation nur fortgesetzt, wenn das Ereignis mindestens dem gewählten Threshold entspricht.
-            Bei weniger Wichtigkeit wird die Pipeline gestoppt – ABER 'remember' läuft trotzdem (falls aktiviert).
+            Bei geringerer Wichtigkeit wird die Pipeline gestoppt – ABER 'remember' läuft trotzdem (falls aktiviert).
           default: false
           selector:
             boolean:
@@ -262,7 +271,7 @@ blueprint:
     # =======================
     notifications_section:
       name: "Benachrichtigungen"
-      description: "Zustellung, Inhalte, iOS-Optionen, Camera Stream und Action-Buttons."
+      description: "Zustellung, Inhalte, iOS-Optionen, Camera Stream, Alarm-Modus und Action-Buttons."
       icon: mdi:bell
       collapsed: true
       input:
@@ -349,6 +358,32 @@ blueprint:
           default: false
           selector:
             boolean:
+
+        # ----- Alarm-Modus -----
+        alarm_repetition_enable:
+          name: "Alarm-Wiederholung aktivieren"
+          description: "Mehrfach hintereinander benachrichtigen (mit Ton) bei wichtigen Ereignissen."
+          default: false
+          selector:
+            boolean:
+        alarm_repetition_count:
+          name: "Anzahl Alarm-Wiederholungen"
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 20
+        alarm_repetition_delay:
+          name: "Pause zwischen Alarm-Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
+        alarm_repetition_conditions:
+          name: "Bedingungen für Alarm-Wiederholungen"
+          description: "Nur wenn alle Bedingungen erfüllt sind, wird die Alarm-Wiederholung ausgeführt."
+          default: []
+          selector:
+            condition:
 
         # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
@@ -508,6 +543,12 @@ variables:
   ios_camera_stream_enable: !input ios_camera_stream_enable
   ios_camera_stream_run_conditions: !input ios_camera_stream_run_conditions
   ios_camera_stream_legacy_category: !input ios_camera_stream_legacy_category
+
+  # Alarm inputs
+  alarm_repetition_enable: !input alarm_repetition_enable
+  alarm_repetition_count: !input alarm_repetition_count
+  alarm_repetition_delay: !input alarm_repetition_delay
+  alarm_repetition_conditions: !input alarm_repetition_conditions
 
   # Kamera aus Trigger ableiten (Sensor→Index→Kamera)
   camera_entity_snapshot: >
@@ -716,18 +757,19 @@ action:
                   - stop: "Gate aktiv: Level '{{ notification_level }}' < Threshold '{{ importance_gate_min_level }}'."
 
           # 3) Erste Push (normal ODER Debug-Zusammenfassung bei 'passive' + Debug)
-          - alias: "Notify initial (iOS, Tag, dynamic level, optional stream)"
+          - alias: "Notify initial (iOS, Tag, dynamic level, optional stream & Alarm)"
             repeat:
               for_each: "{{ notify_services_all }}"
               sequence:
                 - variables:
                     _send_debug: "{{ debug_notify_passive and notification_level == 'passive' }}"
-                - service: "notify.{{ repeat.item }}"
+                    current_notify_service: "{{ repeat.item }}"
+                - service: "notify.{{ current_notify_service }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
                     message: >
                       {% if _send_debug %}
-                      DBG {{ notification_level }} — trig={{ (trigger.entity_id if (trigger is defined and trigger.entity_id) else 'n/a') }}; cam={{ camera_entity_snapshot }}; snap={{ snapshot_filename }}; imp="{{ importance.response_text if (importance is defined and importance.response_text) else 'n/a' }}"; gate={% if importance_gate_enable %}{% if (level_rank[notification_level]|default(-1)) < (level_rank[importance_gate_min_level]|default(0)) %}stop{% else %}pass{% endif %}{% else %}off{% endif %}; stream={% if ai_force_on_critical and importance_is_critical %}forced{% elif response is defined and response.response_text is defined %}run{% else %}skip{% endif %}; remember={{ 'yes' if ai_remember_enable else 'no' }}; acts={{ (1 if action1_enabled else 0) + (1 if action2_enabled else 0) + (1 if action3_enabled else 0) }}.
+                      DBG {{ notification_level }} — trig={{ (trigger.entity_id if (trigger is defined and trigger.entity_id) else 'n/a') }}; cam={{ camera_entity_snapshot }}; snap={{ snapshot_filename }}; imp="{{ importance.response_text if (importance is defined and importance.response_text) else 'n/a' }}"; gate={% if importance_gate_enable %}{% if (level_rank[notification_level]|default(-1)) < (level_rank[importance_gate_min_level]|default(0)) %}stop{% else %}pass{% endif %}{% else %}off{% endif %}; stream={% if ai_force_on_critical and importance_is_critical %}forced{% elif response is defined and response.response_text is defined %}run{% else %}skip{% endif %}; remember={{ 'yes' if ai_remember_enable else 'no' }}; acts={{ (1 if (action1_enabled | default(false)) else 0) + (1 if (action2_enabled | default(false)) else 0) + (1 if (action3_enabled | default(false)) else 0) }}.
                       {% else %}
                       Bewegung erkannt ({{ notification_level }}).
                       {% endif %}
@@ -741,7 +783,7 @@ action:
                         content_type: JPEG
                       actions: >
                         {% set out = [] %}
-                        {% if action1_enabled %}
+                        {% if (action1_enabled | default(false)) %}
                           {% set _ = out.append({
                             'action': 'ACTION_1',
                             'title': action1_title,
@@ -750,7 +792,7 @@ action:
                             'authenticationRequired': action1_auth_required
                           }) %}
                         {% endif %}
-                        {% if action2_enabled %}
+                        {% if (action2_enabled | default(false)) %}
                           {% set _ = out.append({
                             'action': 'ACTION_2',
                             'title': action2_title,
@@ -759,7 +801,7 @@ action:
                             'authenticationRequired': action2_auth_required
                           }) %}
                         {% endif %}
-                        {% if action3_enabled %}
+                        {% if (action3_enabled | default(false)) %}
                           {% set _ = out.append({
                             'action': 'ACTION_3',
                             'title': action3_title,
@@ -783,7 +825,7 @@ action:
                         - condition: and
                           conditions: !input ios_camera_stream_run_conditions
                       sequence:
-                        - service: "notify.{{ repeat.item }}"
+                        - service: "notify.{{ current_notify_service }}"
                           data:
                             message: ""
                             data:
@@ -797,13 +839,75 @@ action:
                         - condition: and
                           conditions: !input ios_camera_stream_run_conditions
                       sequence:
-                        - service: "notify.{{ repeat.item }}"
+                        - service: "notify.{{ current_notify_service }}"
                           data:
                             message: ""
                             data:
                               tag: "{{ notification_tag }}"
                               push:
                                 category: camera
+                # (C) Alarm-Wiederholungen (eigener Tag je Wiederholung, gleicher Inhalt, gleicher Ton)
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ alarm_repetition_enable }}"
+                        - condition: template
+                          value_template: "{{ notification_level in ['time-sensitive','critical'] }}"
+                        - condition: and
+                          conditions: !input alarm_repetition_conditions
+                      sequence:
+                        - repeat:
+                            count: "{{ alarm_repetition_count }}"
+                            sequence:
+                              - delay: !input alarm_repetition_delay
+                              - service: "notify.{{ current_notify_service }}"
+                                data:
+                                  title: "{{ camera }} - {{ label }} {{ notification_time }}"
+                                  message: "Bewegung erkannt ({{ notification_level }})."
+                                  data:
+                                    url: !input tap_navigate
+                                    clickAction: !input tap_navigate
+                                    tag: "{{ notification_tag ~ '_alarm_' ~ repeat.index }}"
+                                    group: "cams"
+                                    attachment:
+                                      url: "{{ snapshot_access_file_path }}"
+                                      content_type: JPEG
+                                    actions: >
+                                      {% set out = [] %}
+                                      {% if (action1_enabled | default(false)) %}
+                                        {% set _ = out.append({
+                                          'action': 'ACTION_1',
+                                          'title': action1_title,
+                                          'icon': action1_icon,
+                                          'destructive': action1_destructive,
+                                          'authenticationRequired': action1_auth_required
+                                        }) %}
+                                      {% endif %}
+                                      {% if (action2_enabled | default(false)) %}
+                                        {% set _ = out.append({
+                                          'action': 'ACTION_2',
+                                          'title': action2_title,
+                                          'icon': action2_icon,
+                                          'destructive': action2_destructive,
+                                          'authenticationRequired': action2_auth_required
+                                        }) %}
+                                      {% endif %}
+                                      {% if (action3_enabled | default(false)) %}
+                                        {% set _ = out.append({
+                                          'action': 'ACTION_3',
+                                          'title': action3_title,
+                                          'icon': action3_icon,
+                                          'destructive': action3_destructive,
+                                          'authenticationRequired': action3_auth_required
+                                        }) %}
+                                      {% endif %}
+                                      {{ out }}
+                                    push:
+                                      interruption-level: "{{ notification_level }}"
+                                      sound:
+                                        name: "{{ notification_sound }}"
+                                        volume: "{{ notification_volume }}"
+                                        critical: "{{ notification_level == 'critical' }}"
 
           # 4) AI-Stream-Analyse (einmalig): erzwungen bei 'critical' ODER normal via ai_enable+conditions
           - choose:
@@ -871,7 +975,9 @@ action:
                 repeat:
                   for_each: "{{ notify_services_all }}"
                   sequence:
-                    - service: "notify.{{ repeat.item }}"
+                    - variables:
+                        current_notify_service: "{{ repeat.item }}"
+                    - service: "notify.{{ current_notify_service }}"
                       data:
                         title: "{{ camera }} - {{ label }} {{ notification_time }}"
                         message: "{{ response.response_text }} ({{ notification_level }})"
@@ -885,7 +991,7 @@ action:
                             content_type: JPEG
                           actions: >
                             {% set out = [] %}
-                            {% if action1_enabled %}
+                            {% if (action1_enabled | default(false)) %}
                               {% set _ = out.append({
                                 'action': 'ACTION_1',
                                 'title': action1_title,
@@ -894,7 +1000,7 @@ action:
                                 'authenticationRequired': action1_auth_required
                               }) %}
                             {% endif %}
-                            {% if action2_enabled %}
+                            {% if (action2_enabled | default(false)) %}
                               {% set _ = out.append({
                                 'action': 'ACTION_2',
                                 'title': action2_title,
@@ -903,7 +1009,7 @@ action:
                                 'authenticationRequired': action2_auth_required
                               }) %}
                             {% endif %}
-                            {% if action3_enabled %}
+                            {% if (action3_enabled | default(false)) %}
                               {% set _ = out.append({
                                 'action': 'ACTION_3',
                                 'title': action3_title,
@@ -927,7 +1033,7 @@ action:
                             - condition: and
                               conditions: !input ios_camera_stream_run_conditions
                           sequence:
-                            - service: "notify.{{ repeat.item }}"
+                            - service: "notify.{{ current_notify_service }}"
                               data:
                                 message: ""
                                 data:
@@ -941,7 +1047,7 @@ action:
                             - condition: and
                               conditions: !input ios_camera_stream_run_conditions
                           sequence:
-                            - service: "notify.{{ repeat.item }}"
+                            - service: "notify.{{ current_notify_service }}"
                               data:
                                 message: ""
                                 data:
