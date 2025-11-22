@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.8.0"
+  name: "Camera Event Notification 1.8.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -312,8 +312,8 @@ blueprint:
 
         tts_message:
           name: "TTS-Text"
-          description: "Variablen wie {{ camera }} erlaubt. Keine Mehrzeiler."
-          default: "Achtung. Kritisches Ereignis durch Kamera {{ camera }} erkannt."
+          description: "Variablen wie {{ camera_friendly }} und {{ response.response_text }} erlaubt."
+          default: "Achtung! {{ camera_friendly | default('Kamera') }} hat Bewegung erkannt: {{ response.response_text | default('Keine weitere Analyse verfügbar') }}."
           selector:
             text:
               multiline: false
@@ -575,7 +575,22 @@ variables:
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
-  notify_groups_raw: !input notify_groups
+
+  # Action Button Inputs (WICHTIG - DIESE FEHLEN!)
+  action1_enabled: !input action1_enabled
+  action1_title: !input action1_title
+  action1_icon: !input action1_icon
+  action1_destructive: !input action1_destructive
+  
+  action2_enabled: !input action2_enabled
+  action2_title: !input action2_title
+  action2_icon: !input action2_icon
+  action2_destructive: !input action2_destructive
+  
+  action3_enabled: !input action3_enabled
+  action3_title: !input action3_title
+  action3_icon: !input action3_icon
+  action3_destructive: !input action3_destructive
 
   # AI inputs
   importance_enable: !input importance_enable
@@ -1149,35 +1164,6 @@ action:
                               name: "{{ notification_sound }}"
                               volume: "{{ notification_volume }}"
                               critical: "{{ notification_level == 'critical' }}"
-                    # (A) entity_id für Camera Stream nachschieben (separater Call, gleicher Tag)
-                    - choose:
-                        - conditions:
-                            - condition: template
-                              value_template: "{{ ios_camera_stream_enable }}"
-                            - condition: and
-                              conditions: !input ios_camera_stream_run_conditions
-                          sequence:
-                            - service: "notify.{{ current_notify_service }}"
-                              data:
-                                message: ""
-                                data:
-                                  tag: "{{ notification_tag }}"
-                                  entity_id: "{{ camera_entity_snapshot }}"
-                    # (B) Legacy push.category=camera nachschieben (falls nötig)
-                    - choose:
-                        - conditions:
-                            - condition: template
-                              value_template: "{{ ios_camera_stream_enable and ios_camera_stream_legacy_category }}"
-                            - condition: and
-                              conditions: !input ios_camera_stream_run_conditions
-                          sequence:
-                            - service: "notify.{{ current_notify_service }}"
-                              data:
-                                message: ""
-                                data:
-                                  tag: "{{ notification_tag }}"
-                                  push:
-                                    category: camera
 
   # 6) Globaler Cooldown
   - delay: !input cooldown
