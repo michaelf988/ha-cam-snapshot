@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.7.0"
+  name: "Camera Event Notification 1.8.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -9,8 +9,9 @@ blueprint:
     und Update der Push via Tag. Gate mit konfigurierbarem Threshold & Zusatzbedingungen; dynamisches
     Interruption-Level aus der Wichtigkeitsanalyse. Action-Buttons ohne internes Warten (Events separat
     abfangbar). Optionaler iOS Camera Stream (Vorschau/erweiterte MJPEG-Ansicht) mit Bedingungen.
-    Alarm-Modus: bei wichtigen Ereignissen mehrere Pushs mit Ton in kurzem Abstand. Bei Debug aktiv
-    wird bei 'passive' eine kompakte Trace-Zusammenfassung anstelle der normalen Push gesendet.
+    Alarm-Modus: bei wichtigen Ereignissen mehrere Pushs mit Ton in kurzem Abstand.
+    TTS: bei kritischen Ereignissen kann Text über Media-Player gesprochen werden.
+    Bei Debug aktiv wird bei 'passive' eine kompakte Trace-Zusammenfassung anstelle der normalen Push gesendet.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
@@ -220,7 +221,7 @@ blueprint:
           name: "AI: Prompt (Stream Analyzer, sehr kurz)"
           description: "Sehr kurze, knappe Erkennungsausgabe."
           default: >
-            Antworte NUR mit einem der folgenden kurzen Stichwörter (Deutsch), ohne Zusatz:
+            Antworte NUR mit einem der folgenden kurzen Stichwörtern (Deutsch), ohne Zusatz:
             "Person erkannt", "Fahrzeug erkannt", "Person & Fahrzeug", "Mehrere Personen",
             "Tier erkannt", "Unklar", "Keine relevante Bewegung".
           selector:
@@ -265,6 +266,79 @@ blueprint:
           default: true
           selector:
             boolean:
+
+    # =======================
+    # SECTION: TEXT-TO-SPEECH
+    # =======================
+    tts_section:
+      name: "Text-to-Speech"
+      description: "Kritische Ereignisse zusätzlich über Lautsprecher ansagen."
+      icon: mdi:volume-high
+      collapsed: true
+      input:
+        tts_enable:
+          name: "TTS bei critical aktivieren"
+          description: "Sprachansage nur bei kritischen Ereignissen."
+          default: false
+          selector:
+            boolean:
+
+        tts_target_entity:
+          name: "TTS-Entity (tts.speak)"
+          description: "z. B. tts.home_assistant_cloud"
+          selector:
+            entity:
+              filter:
+                domain: tts
+
+        tts_media_players:
+          name: "Media-Player für TTS"
+          description: "Ein oder mehrere Lautsprecher/Media-Player."
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: media_player
+
+        tts_volume:
+          name: "TTS-Lautstärke"
+          default: 0.5
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.05
+
+        tts_message:
+          name: "TTS-Text"
+          description: "Variablen wie {{ camera }} erlaubt. Keine Mehrzeiler."
+          default: "Achtung. Kritisches Ereignis durch Kamera {{ camera }} erkannt."
+          selector:
+            text:
+              multiline: false
+
+        tts_repeat_count:
+          name: "TTS Wiederholungen"
+          description: "Wie oft der TTS-Text wiederholt werden soll."
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        tts_repeat_delay:
+          name: "Pause zwischen TTS-Wiederholungen"
+          default: { seconds: 1 }
+          selector:
+            duration: {}
+
+        tts_conditions:
+          name: "Bedingungen für TTS"
+          description: "Alle Bedingungen müssen erfüllt sein, damit TTS ausgeführt wird."
+          default: []
+          selector:
+            condition:
 
     # =======================
     # SECTION: BENACHRICHTIGUNGEN
@@ -529,6 +603,16 @@ variables:
   max_tokens: !input max_tokens
   ai_remember_enable: !input ai_remember_enable
 
+  # TTS inputs
+  tts_enable: !input tts_enable
+  tts_target_entity: !input tts_target_entity
+  tts_media_players: !input tts_media_players
+  tts_volume: !input tts_volume
+  tts_message: !input tts_message
+  tts_repeat_count: !input tts_repeat_count
+  tts_repeat_delay: !input tts_repeat_delay
+  tts_conditions: !input tts_conditions
+
   # Storage inputs
   timestamp_filenames: !input timestamp_filenames
   timestamp_format: !input timestamp_format
@@ -757,7 +841,7 @@ action:
                   - stop: "Gate aktiv: Level '{{ notification_level }}' < Threshold '{{ importance_gate_min_level }}'."
 
           # 3) Erste Push (normal ODER Debug-Zusammenfassung bei 'passive' + Debug)
-          - alias: "Notify initial (iOS, Tag, dynamic level, optional stream & Alarm)"
+          - alias: "Notify initial (iOS, Tag, dynamic level, optional stream)"
             repeat:
               for_each: "{{ notify_services_all }}"
               sequence:
@@ -846,21 +930,61 @@ action:
                               tag: "{{ notification_tag }}"
                               push:
                                 category: camera
-                # (C) Alarm-Wiederholungen (eigener Tag je Wiederholung, gleicher Inhalt, gleicher Ton)
-                - choose:
-                    - conditions:
-                        - condition: template
-                          value_template: "{{ alarm_repetition_enable }}"
-                        - condition: template
-                          value_template: "{{ notification_level in ['time-sensitive','critical'] }}"
-                        - condition: and
-                          conditions: !input alarm_repetition_conditions
+
+          # 3b) TTS nach erster Push, nur bei 'critical'
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ tts_enable }}"
+                  - condition: template
+                    value_template: "{{ notification_level == 'critical' }}"
+                  - condition: and
+                    conditions: !input tts_conditions
+                  - condition: template
+                    value_template: >
+                      {{ (tts_media_players | length) > 0 and tts_target_entity is not none and tts_target_entity != '' }}
+                sequence:
+                  - repeat:
+                      count: "{{ tts_repeat_count }}"
                       sequence:
+                        - delay: !input tts_repeat_delay
+                        - repeat:
+                            for_each: "{{ tts_media_players }}"
+                            sequence:
+                              - service: media_player.volume_set
+                                target:
+                                  entity_id: "{{ repeat.item }}"
+                                data:
+                                  volume_level: "{{ tts_volume }}"
+                              - service: tts.speak
+                                target:
+                                  entity_id: "{{ tts_target_entity }}"
+                                data:
+                                  cache: false
+                                  media_player_entity_id: "{{ repeat.item }}"
+                                  message: "{{ tts_message }}"
+
+          # 3c) Alarm-Wiederholungen (eigener Tag je Wiederholung, gleicher Inhalt, gleicher Ton)
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ alarm_repetition_enable }}"
+                  - condition: template
+                    value_template: "{{ notification_level in ['time-sensitive','critical'] }}"
+                  - condition: and
+                    conditions: !input alarm_repetition_conditions
+                sequence:
+                  - alias: "Alarm-Wiederholungen (alle Notify-Services)"
+                    repeat:
+                      for_each: "{{ notify_services_all }}"
+                      sequence:
+                        - variables:
+                            alarm_notify_service: "{{ repeat.item }}"
                         - repeat:
                             count: "{{ alarm_repetition_count }}"
                             sequence:
                               - delay: !input alarm_repetition_delay
-                              - service: "notify.{{ current_notify_service }}"
+                              - service: "notify.{{ alarm_notify_service }}"
                                 data:
                                   title: "{{ camera }} - {{ label }} {{ notification_time }}"
                                   message: "Bewegung erkannt ({{ notification_level }})."
@@ -966,7 +1090,7 @@ action:
                       Bewegung erkannt (nicht analysiert)
                     {% endif %}
 
-          # 5) Update-Push (falls Stream-Analyse gelaufen ist)
+          # 5b) Update-Push (falls Stream-Analyse gelaufen ist)
           - if:
               - condition: template
                 value_template: "{{ response is defined and response.response_text is defined }}"
