@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.9.1"
+  name: "Camera Event Notification 1.9.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -156,6 +156,19 @@ blueprint:
           selector:
             condition:
 
+        importance_default_level:
+          name: "Standard-Level (wenn Wichtigkeitsanalyse deaktiviert)"
+          description: "Welches Interruption-Level soll verwendet werden, wenn die Wichtigkeitsanalyse nicht läuft?"
+          default: "active"
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
         ai_force_on_critical:
           name: "Stream-Analyse erzwingen bei 'critical'"
           description: "Ignoriere ai_enable & Zusatzbedingungen, wenn die Wichtigkeitsanalyse 'critical' ergibt."
@@ -265,13 +278,6 @@ blueprint:
               multiple: true
               filter:
                 integration: mobile_app
-
-        notify_groups:
-          name: "Notify-Gruppen (optional)"
-          description: "Kommagetrennte Service-Namen ohne Leerzeichen, z. B.: notify.family,notify.ios_all"
-          default: ""
-          selector:
-            text:
 
         notification_time:
           name: "Zeit im Titel (optional)"
@@ -394,8 +400,8 @@ blueprint:
 
         tts_message:
           name: "TTS-Text"
-          description: "Variablen wie {{ camera }} erlaubt. Keine Mehrzeiler."
-          default: "Achtung. Kritisches Ereignis durch Kamera {{ camera }} erkannt."
+          description: "Variablen wie {{ camera }} und {{ response.response_text }} erlaubt."
+          default: "Achtung! {{ camera }} hat Bewegung erkannt: {{ response.response_text | default('Keine weitere Analyse verfügbar') }}."
           selector:
             text:
               multiline: false
@@ -525,12 +531,12 @@ variables:
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
-  notify_groups_raw: !input notify_groups
 
   # AI inputs
   importance_enable: !input importance_enable
   importance_run_conditions: !input importance_run_conditions
   importance_prompt: !input importance_prompt
+  importance_default_level: !input importance_default_level
 
   importance_gate_enable: !input importance_gate_enable
   importance_gate_min_level: !input importance_gate_min_level
@@ -612,21 +618,8 @@ variables:
     {% endfor %}
     {{ ns.device_names }}
 
-  # Notify-Gruppen aus Textfeld (notify.xyz → nur Suffix als Service-Name)
-  notify_group_services: >
-    {% set raw = notify_groups_raw | default('', true) %}
-    {% set parts = raw.split(',') if raw|length>0 else [] %}
-    {% set cleaned = [] %}
-    {% for p in parts %}
-      {% set s = p|trim %}
-      {% if s and s.startswith('notify.') and (s|length > 7) %}
-        {% set cleaned = cleaned + [ s[7:] ] %}
-      {% endif %}
-    {% endfor %}
-    {{ cleaned }}
-
-  # Gesamte Ziel-Services (Geräte + Gruppen)
-  notify_services_all: "{{ (device_name_map + notify_group_services) }}"
+  # Gesamte Ziel-Services (nur Geräte, keine Gruppen mehr)
+  notify_services_all: "{{ device_name_map }}"
 
   # Action-Buttons als gemeinsame Liste
   notification_actions: >
@@ -719,18 +712,19 @@ action:
                       max_tokens: !input max_tokens
                     response_variable: importance
 
-          # 2b) Vorschlag normalisieren
+          # 2b) Vorschlag normalisieren - NUR wenn importance_enable aktiv ist
           - variables:
               importance_suggested_level: >
-                {% set fallback = 'time-sensitive' %}
-                {% if importance is defined and importance.response_text %}
+                {% if importance_enable and importance is defined and importance.response_text %}
                   {% set t = importance.response_text | lower %}
                   {% if 'critical' in t %}critical
                   {% elif 'time-sensitive' in t or 'time sensitive' in t %}time-sensitive
                   {% elif 'active' in t %}active
                   {% elif 'passive' in t %}passive
-                  {% else %}{{ fallback }}{% endif %}
-                {% else %}{{ fallback }}{% endif %}
+                  {% else %}{{ importance_default_level }}{% endif %}
+                {% else %}
+                  {{ importance_default_level }}
+                {% endif %}
 
           # 2c) Endgültiges notification_level direkt aus Vorschlag
           - variables:
