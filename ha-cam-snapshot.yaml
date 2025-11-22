@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 1.9.0"
+  name: "Camera Event Notification 1.9.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -9,6 +9,7 @@ blueprint:
     Gate mit konfigurierbarem Threshold, dynamisches Interruption-Level aus der Wichtigkeitsanalyse,
     Alarm-Modus (mehrere Pushs bei wichtigen Ereignissen), Text-to-Speech bei critical
     sowie Action-Buttons ohne internes Warten (Events separat abfangbar).
+    Eingaben sind in logische, einklappbare Sektionen gegliedert.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
@@ -16,10 +17,10 @@ blueprint:
   input:
 
     # =======================
-    # SECTION: KAMERAS
+    # 1) KAMERAS & SENSOREN
     # =======================
     cameras_section:
-      name: "Kameras"
+      name: "Kameras & Sensoren"
       description: "Kamera- und Bewegungsmelder-Einstellungen."
       icon: mdi:camera
       collapsed: true
@@ -51,11 +52,11 @@ blueprint:
                 domain: binary_sensor
 
     # =======================
-    # SECTION: SPEICHERUNG
+    # 2) SPEICHERUNG & DATEIPFADE
     # =======================
     storage_section:
-      name: "Speicherung"
-      description: "Dateinamen & Pfade für Snapshots."
+      name: "Speicherung & Dateipfade"
+      description: "Dateinamen & Basis-Pfade für Snapshots."
       icon: mdi:folder
       collapsed: true
       input:
@@ -86,17 +87,16 @@ blueprint:
             text:
 
     # =======================
-    # SECTION: AI (Bild-/Stream-Analyse)
+    # 3) WICHTIGKEITSANALYSE (IMAGE ANALYZER)
     # =======================
-    ai_section:
-      name: "AI"
-      description: "Wichtigkeits-Check (image_analyzer) & Live-Analyse (stream_analyzer)."
-      icon: mdi:brain
+    importance_section:
+      name: "Wichtigkeitsanalyse (Image Analyzer)"
+      description: "Einstufung in passive / active / time-sensitive / critical anhand des Snapshots."
+      icon: mdi:shield-search
       collapsed: true
       input:
-        # --- Vorklassifizierung (Image Analyzer) ---
         importance_enable:
-          name: "Wichtigkeits-Check aktivieren (image_analyzer)"
+          name: "Wichtigkeits-Check aktivieren (llmvision.image_analyzer)"
           default: false
           selector:
             boolean:
@@ -129,7 +129,6 @@ blueprint:
             text:
               multiline: true
 
-        # Gate
         importance_gate_enable:
           name: "Nur wichtige Ereignisse weiterverarbeiten (Gate)"
           description: >
@@ -157,7 +156,6 @@ blueprint:
           selector:
             condition:
 
-        # Kritisch erzwingen → Stream
         ai_force_on_critical:
           name: "Stream-Analyse erzwingen bei 'critical'"
           description: "Ignoriere ai_enable & Zusatzbedingungen, wenn die Wichtigkeitsanalyse 'critical' ergibt."
@@ -165,7 +163,15 @@ blueprint:
           selector:
             boolean:
 
-        # --- Stream Analyzer (optional) ---
+    # =======================
+    # 4) LIVE-ANALYSE (STREAM ANALYZER)
+    # =======================
+    stream_ai_section:
+      name: "Live-Analyse (Stream Analyzer)"
+      description: "Optionale Analyse des Live-Streams über llmvision.stream_analyzer."
+      icon: mdi:cctv
+      collapsed: true
+      input:
         ai_enable:
           name: "AI Stream Analyzer aktivieren"
           default: false
@@ -237,10 +243,117 @@ blueprint:
               max: 300
 
     # =======================
-    # SECTION: TEXT-TO-SPEECH
+    # 5) BENACHRICHTIGUNGEN (iOS PUSH)
+    # =======================
+    notifications_section:
+      name: "Benachrichtigungen (iOS Push)"
+      description: "Zustellung, Inhalte und iOS-Optionen."
+      icon: mdi:bell
+      collapsed: true
+      input:
+        notify:
+          name: "Enable Notifications"
+          default: true
+          selector:
+            boolean:
+
+        notify_device:
+          name: "Notify Device(s)"
+          description: "Zielgeräte (Home Assistant Companion)."
+          selector:
+            device:
+              multiple: true
+              filter:
+                integration: mobile_app
+
+        notify_groups:
+          name: "Notify-Gruppen (optional)"
+          description: "Kommagetrennte Service-Namen ohne Leerzeichen, z. B.: notify.family,notify.ios_all"
+          default: ""
+          selector:
+            text:
+
+        notification_time:
+          name: "Zeit im Titel (optional)"
+          default: ""
+          selector:
+            select:
+              options:
+                - label: "No Time Added"
+                  value: ""
+                - label: "12/24 Hour (de)"
+                  value: "um {{ now().strftime('%H:%M') }}"
+
+        tap_navigate:
+          name: "Tap / Click Action Path"
+          default: "/lovelace/test"
+          selector:
+            text:
+
+        notification_sound:
+          name: "iOS Sound"
+          default: "LiquidDetected.caf"
+          selector:
+            text:
+
+        notification_volume:
+          name: "iOS Sound Volume (0..1)"
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.1
+
+        delay_notification:
+          name: "Notification Cooldown (seconds)"
+          description: "Lokaler Throttle: Verhindert unmittelbare Doppel-Trigger (prüft last_triggered)."
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 600
+              unit_of_measurement: seconds
+
+    # =======================
+    # 6) ALARMFUNKTIONEN
+    # =======================
+    alarm_section:
+      name: "Alarmfunktionen"
+      description: "Mehrfach-Benachrichtigungen bei wichtigen Ereignissen."
+      icon: mdi:alarm-light
+      collapsed: true
+      input:
+        alarm_repetition_enable:
+          name: "Alarm-Wiederholung aktivieren"
+          description: "Mehrfach hintereinander benachrichtigen (mit Ton) bei wichtigen Ereignissen."
+          default: false
+          selector:
+            boolean:
+        alarm_repetition_count:
+          name: "Anzahl Alarm-Wiederholungen"
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 20
+        alarm_repetition_delay:
+          name: "Pause zwischen Alarm-Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
+        alarm_repetition_conditions:
+          name: "Bedingungen für Alarm-Wiederholungen"
+          description: "Nur wenn alle Bedingungen erfüllt sind, wird die Alarm-Wiederholung ausgeführt."
+          default: []
+          selector:
+            condition:
+
+    # =======================
+    # 7) TEXT-TO-SPEECH (CRITICAL-ANSAGEN)
     # =======================
     tts_section:
-      name: "Text-to-Speech"
+      name: "Text-to-Speech (Critical-Ansagen)"
       description: "Kritische Ereignisse zusätzlich über Lautsprecher ansagen."
       icon: mdi:volume-high
       collapsed: true
@@ -310,105 +423,14 @@ blueprint:
             condition:
 
     # =======================
-    # SECTION: BENACHRICHTIGUNGEN
+    # 8) ACTION BUTTONS
     # =======================
-    notifications_section:
-      name: "Benachrichtigungen"
-      description: "Zustellung, Inhalte, iOS-Optionen, Alarm-Modus und Action-Buttons."
-      icon: mdi:bell
+    action_buttons_section:
+      name: "Action Buttons"
+      description: "Konfiguration der drei Actionable Notification Buttons (ACTION_1–3)."
+      icon: mdi:gesture-tap-button
       collapsed: true
       input:
-        notify:
-          name: "Enable Notifications"
-          default: true
-          selector:
-            boolean:
-
-        notify_device:
-          name: "Notify Device(s)"
-          description: "Zielgeräte (Home Assistant Companion)."
-          selector:
-            device:
-              multiple: true
-              filter:
-                integration: mobile_app
-
-        notify_groups:
-          name: "Notify-Gruppen (optional)"
-          description: "Kommagetrennte Service-Namen ohne Leerzeichen, z. B.: notify.family,notify.ios_all"
-          default: ""
-          selector:
-            text:
-
-        notification_time:
-          name: "Zeit im Titel (optional)"
-          default: ""
-          selector:
-            select:
-              options:
-                - label: "No Time Added"
-                  value: ""
-                - label: "12/24 Hour (de)"
-                  value: "um {{ now().strftime('%H:%M') }}"
-
-        tap_navigate:
-          name: "Tap / Click Action Path"
-          default: "/lovelace/test"
-          selector:
-            text:
-
-        notification_sound:
-          name: "iOS Sound"
-          default: "LiquidDetected.caf"
-          selector:
-            text:
-
-        notification_volume:
-          name: "iOS Sound Volume (0..1)"
-          default: 1
-          selector:
-            number:
-              min: 0
-              max: 1
-              step: 0.1
-
-        delay_notification:
-          name: "Notification Cooldown (seconds)"
-          description: "Lokaler Throttle: Verhindert unmittelbare Doppel-Trigger (prüft last_triggered)."
-          default: 15
-          selector:
-            number:
-              min: 0
-              max: 600
-              unit_of_measurement: seconds
-
-        # ----- Alarm-Modus -----
-        alarm_repetition_enable:
-          name: "Alarm-Wiederholung aktivieren"
-          description: "Mehrfach hintereinander benachrichtigen (mit Ton) bei wichtigen Ereignissen."
-          default: false
-          selector:
-            boolean:
-        alarm_repetition_count:
-          name: "Anzahl Alarm-Wiederholungen"
-          default: 5
-          selector:
-            number:
-              min: 1
-              max: 20
-        alarm_repetition_delay:
-          name: "Pause zwischen Alarm-Wiederholungen"
-          default: { seconds: 3 }
-          selector:
-            duration: {}
-        alarm_repetition_conditions:
-          name: "Bedingungen für Alarm-Wiederholungen"
-          description: "Nur wenn alle Bedingungen erfüllt sind, wird die Alarm-Wiederholung ausgeführt."
-          default: []
-          selector:
-            condition:
-
-        # ----- Actionable Notifications (Option 1–3) -----
         action1_enabled:
           name: "Option 1 aktiv"
           default: false
@@ -474,10 +496,10 @@ blueprint:
             boolean:
 
     # =======================
-    # SECTION: SONSTIGES
+    # 9) SONSTIGES & COOLDOWNS
     # =======================
     misc_section:
-      name: "Sonstiges"
+      name: "Sonstiges & Cooldowns"
       description: "Diverse Einstellungen."
       icon: mdi:cog
       collapsed: true
