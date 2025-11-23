@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.2"
+  name: "Camera Event Notification 2.2.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -9,6 +9,13 @@ blueprint:
     AI-Analysen und mehr. Jedes Szenario kann individuell konfiguriert werden
     basierend auf Anwesenheit, Alarmanlage-Status oder manuellen Triggern.
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
+    
+    Changelog:
+    * 2.2.1: Hotfix für response-undefined Fehler im Update-Push
+    * 2.2: Bereinigung aller response-Variablen aus Default-Nachrichten zur Fehlervermeidung
+    * 2.1: LG TV Integration, Helper-basierte Szenario-Steuerung, Icons entfernt, Tap-Action hinzugefügt
+    * 2.0: Kompletter Umbau auf 6 Szenarien mit individuellen Einstellungen
+    * 1.8.2: Entfernung von Debug-Modus, Remember-Funktion und iOS Camera Stream
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
@@ -1612,7 +1619,7 @@ action:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - Update {{ notification_time }}"
-                    message: "{{ response.response_text }} ({{ notification_level }})"
+                    message: "{{ response.response_text if (response is defined and response.response_text is defined) else 'Stream-Analyse abgeschlossen' }} ({{ notification_level }})"
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
