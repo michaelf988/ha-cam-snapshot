@@ -1,16 +1,17 @@
 blueprint:
-  name: "Camera Event Notification 2.0"
+  name: "Camera Event Notification 2.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit 6 konfigurierbaren Modi.
-    Unterstützt mobile Benachrichtigungen, TV-Notifications, TTS-Ansagen,
+    Unterstützt mobile Benachrichtigungen, TV-Notifications (LG WebOS), TTS-Ansagen,
     AI-Analysen und mehr. Jedes Szenario kann individuell konfiguriert werden
     basierend auf Anwesenheit, Alarmanlage-Status oder manuellen Triggern.
+    Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
 
   input:
     # =======================
@@ -107,7 +108,7 @@ blueprint:
             text:
 
         target_width:
-          name: "Bild-Breite (Pixel)"
+          name: "AI: Bild-Breite (Pixel)"
           default: 1280
           selector:
             number:
@@ -115,7 +116,7 @@ blueprint:
               max: 3840
 
         max_frames:
-          name: "Max Frames (Stream-Analyse)"
+          name: "AI: Max Frames (Stream-Analyse)"
           default: 3
           selector:
             number:
@@ -123,7 +124,7 @@ blueprint:
               max: 60
 
         duration:
-          name: "Stream-Dauer (Sekunden)"
+          name: "AI: Stream-Dauer (Sekunden)"
           default: 3
           selector:
             number:
@@ -131,7 +132,7 @@ blueprint:
               max: 60
 
         max_tokens:
-          name: "Max Tokens"
+          name: "AI: Max Tokens"
           default: 100
           selector:
             number:
@@ -235,6 +236,13 @@ blueprint:
               filter:
                 integration: mobile_app
 
+        tap_navigate:
+          name: "Tap / Click Action Path"
+          description: "Pfad beim Antippen der Benachrichtigung"
+          default: "/lovelace/cameras"
+          selector:
+            text:
+
         notification_time:
           name: "Zeit im Titel"
           default: ""
@@ -285,7 +293,7 @@ blueprint:
           selector:
             duration: {}
 
-        # Action Buttons
+        # Action Buttons (ohne Icons)
         action1_enabled:
           name: "Button 1 aktivieren"
           default: true
@@ -294,11 +302,6 @@ blueprint:
         action1_title:
           name: "Button 1 Text"
           default: "Öffnen"
-          selector:
-            text:
-        action1_icon:
-          name: "Button 1 Icon"
-          default: "sfsymbols:eye"
           selector:
             text:
         action1_destructive:
@@ -317,11 +320,6 @@ blueprint:
           default: "Snooze 15min"
           selector:
             text:
-        action2_icon:
-          name: "Button 2 Icon"
-          default: "sfsymbols:moon.zzz"
-          selector:
-            text:
         action2_destructive:
           name: "Button 2 Rot markieren"
           default: false
@@ -336,11 +334,6 @@ blueprint:
         action3_title:
           name: "Button 3 Text"
           default: "Alarm aus"
-          selector:
-            text:
-        action3_icon:
-          name: "Button 3 Icon"
-          default: "sfsymbols:bell.slash"
           selector:
             text:
         action3_destructive:
@@ -358,9 +351,37 @@ blueprint:
       icon: mdi:television
       collapsed: true
       input:
-        tv_notify_entities:
-          name: "TV Notify Services"
-          description: "z.B. notify.lg_webos_smart_tv"
+        # LG WebOS TV
+        lg_tv_enable:
+          name: "LG WebOS TV Benachrichtigungen"
+          description: "Sendet Nachrichten an LG TV via notify.lg_webos_smart_tv"
+          default: false
+          selector:
+            boolean:
+
+        lg_tv_conditions:
+          name: "Bedingungen für LG TV-Benachrichtigungen"
+          description: "z.B. TV muss eingeschaltet sein"
+          default: []
+          selector:
+            condition:
+
+        lg_tv_message_title:
+          name: "LG TV Nachricht Titel"
+          default: "Sicherheitswarnung"
+          selector:
+            text:
+
+        lg_tv_message_text:
+          name: "LG TV Nachricht Text"
+          default: "{{ camera_friendly }}: {{ response.response_text | default('Bewegung erkannt') }}"
+          selector:
+            text:
+
+        # Andere TV/Notify Services (optional)
+        other_notify_entities:
+          name: "Weitere Notify Services (optional)"
+          description: "z.B. andere Smart TVs, Alexa, etc."
           default: []
           selector:
             entity:
@@ -368,21 +389,20 @@ blueprint:
               filter:
                 domain: notify
 
-        tv_notify_conditions:
-          name: "Bedingungen für TV-Benachrichtigungen"
-          description: "z.B. TV muss eingeschaltet sein"
+        other_notify_conditions:
+          name: "Bedingungen für weitere Benachrichtigungen"
           default: []
           selector:
             condition:
 
-        tv_message_title:
-          name: "TV Nachricht Titel"
+        other_notify_title:
+          name: "Weitere Services - Titel"
           default: "Sicherheitswarnung"
           selector:
             text:
 
-        tv_message_text:
-          name: "TV Nachricht Text"
+        other_notify_text:
+          name: "Weitere Services - Text"
           default: "{{ camera_friendly }}: {{ response.response_text | default('Bewegung erkannt') }}"
           selector:
             text:
@@ -392,45 +412,18 @@ blueprint:
     # =======================
     scenario_control_section:
       name: "Szenario-Steuerung"
-      description: "Wie wird das aktive Szenario bestimmt?"
+      description: "Automatische Szenario-Erkennung mit Helper-Override"
       icon: mdi:home-automation
       collapsed: false
       input:
-        scenario_mode:
-          name: "Szenario-Modus"
-          default: "auto"
-          selector:
-            select:
-              options:
-                - label: "Automatisch (nach Bedingungen)"
-                  value: "auto"
-                - label: "Manuell (Helper Entity)"
-                  value: "manual"
-                - label: "Fest (immer gleiches Szenario)"
-                  value: "fixed"
-
         scenario_helper:
-          name: "Szenario Helper Entity"
-          description: "Für manuellen Modus (input_select mit Werten 1-6)"
-          default: ""
+          name: "Szenario 6 Helper Entity"
+          description: "Wenn aktiv, wird immer Szenario 6 verwendet"
+          default: "input_boolean.cam_event_notify_helper"
           selector:
             entity:
               filter:
-                domain: input_select
-
-        scenario_fixed:
-          name: "Festes Szenario"
-          description: "Für festen Modus"
-          default: "3"
-          selector:
-            select:
-              options:
-                - "1"
-                - "2"
-                - "3"
-                - "4"
-                - "5"
-                - "6"
+                domain: input_boolean
 
         scenario_fallback:
           name: "Fallback Szenario"
@@ -439,12 +432,18 @@ blueprint:
           selector:
             select:
               options:
-                - "1"
-                - "2"
-                - "3"
-                - "4"
-                - "5"
-                - "6"
+                - label: "Szenario 1"
+                  value: "1"
+                - label: "Szenario 2"
+                  value: "2"
+                - label: "Szenario 3 (Minimal)"
+                  value: "3"
+                - label: "Szenario 4"
+                  value: "4"
+                - label: "Szenario 5"
+                  value: "5"
+                - label: "Szenario 6"
+                  value: "6"
 
     # =======================
     # SZENARIO 1
@@ -993,7 +992,7 @@ blueprint:
     # =======================
     scenario_6_section:
       name: "Szenario 6: Manueller Modus"
-      description: "Flexibel über Helper konfigurierbar"
+      description: "Aktiviert wenn Helper Entity an ist"
       icon: mdi:hand-pointing-right
       collapsed: true
       input:
@@ -1004,8 +1003,8 @@ blueprint:
             boolean:
 
         s6_conditions:
-          name: "Aktivierungsbedingungen"
-          description: "Oder wenn scenario_helper = '6'"
+          name: "Zusätzliche Aktivierungsbedingungen"
+          description: "Optional - wird auch durch Helper aktiviert"
           default: []
           selector:
             condition:
@@ -1136,6 +1135,7 @@ variables:
   snapshot_dir_web_base: !input snapshot_dir_web
   
   # Notification settings
+  tap_navigate: !input tap_navigate
   notification_time: !input notification_time
   notification_sound: !input notification_sound
   notification_volume: !input notification_volume
@@ -1152,31 +1152,31 @@ variables:
   tts_repeat_delay: !input tts_repeat_delay
   
   # TV settings
-  tv_notify_entities: !input tv_notify_entities
-  tv_notify_conditions: !input tv_notify_conditions
-  tv_message_title: !input tv_message_title
-  tv_message_text: !input tv_message_text
+  lg_tv_enable: !input lg_tv_enable
+  lg_tv_conditions: !input lg_tv_conditions
+  lg_tv_message_title: !input lg_tv_message_title
+  lg_tv_message_text: !input lg_tv_message_text
   
-  # Action buttons
+  other_notify_entities: !input other_notify_entities
+  other_notify_conditions: !input other_notify_conditions
+  other_notify_title: !input other_notify_title
+  other_notify_text: !input other_notify_text
+  
+  # Action buttons (ohne Icons)
   action1_enabled: !input action1_enabled
   action1_title: !input action1_title
-  action1_icon: !input action1_icon
   action1_destructive: !input action1_destructive
   
   action2_enabled: !input action2_enabled
   action2_title: !input action2_title
-  action2_icon: !input action2_icon
   action2_destructive: !input action2_destructive
   
   action3_enabled: !input action3_enabled
   action3_title: !input action3_title
-  action3_icon: !input action3_icon
   action3_destructive: !input action3_destructive
   
   # Scenario control
-  scenario_mode: !input scenario_mode
   scenario_helper: !input scenario_helper
-  scenario_fixed: !input scenario_fixed
   scenario_fallback: !input scenario_fallback
   
   # All scenario settings
@@ -1302,7 +1302,6 @@ variables:
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
   notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
-  tap_navigate: "/lovelace/cameras"
   
   # Level ranking
   level_rank: "{{ {'passive':0,'active':1,'time-sensitive':2,'critical':3} }}"
@@ -1339,22 +1338,18 @@ trigger:
 
 # ================= Actions =================
 action:
-  # Step 0: Determine active scenario
+  # Step 0: Determine active scenario (Helper hat Priorität)
   - variables:
       active_scenario: >
-        {% if scenario_mode == 'manual' and scenario_helper %}
-          {{ states(scenario_helper) }}
-        {% elif scenario_mode == 'fixed' %}
-          {{ scenario_fixed }}
-        {% else %}
-          {% if s1_enabled and s1_conditions %}1
-          {% elif s2_enabled and s2_conditions %}2
-          {% elif s3_enabled and s3_conditions %}3
-          {% elif s4_enabled and s4_conditions %}4
-          {% elif s5_enabled and s5_conditions %}5
-          {% elif s6_enabled and s6_conditions %}6
-          {% else %}{{ scenario_fallback }}{% endif %}
-        {% endif %}
+        {% if scenario_helper and is_state(scenario_helper, 'on') %}
+          6
+        {% elif s1_enabled and s1_conditions %}1
+        {% elif s2_enabled and s2_conditions %}2
+        {% elif s3_enabled and s3_conditions %}3
+        {% elif s4_enabled and s4_conditions %}4
+        {% elif s5_enabled and s5_conditions %}5
+        {% elif s6_enabled and s6_conditions %}6
+        {% else %}{{ scenario_fallback }}{% endif %}
   
   # Load scenario settings dynamically
   - variables:
@@ -1468,7 +1463,6 @@ action:
                           {% set _ = out.append({
                             'action': 'ACTION_1',
                             'title': action1_title,
-                            'icon': action1_icon,
                             'destructive': action1_destructive
                           }) %}
                         {% endif %}
@@ -1476,7 +1470,6 @@ action:
                           {% set _ = out.append({
                             'action': 'ACTION_2',
                             'title': action2_title,
-                            'icon': action2_icon,
                             'destructive': action2_destructive
                           }) %}
                         {% endif %}
@@ -1484,7 +1477,6 @@ action:
                           {% set _ = out.append({
                             'action': 'ACTION_3',
                             'title': action3_title,
-                            'icon': action3_icon,
                             'destructive': action3_destructive
                           }) %}
                         {% endif %}
@@ -1496,20 +1488,33 @@ action:
                           volume: "{{ notification_volume }}"
                           critical: "{{ notification_level == 'critical' }}"
       
-      # 5) TV notification
+      # 5) TV notifications
+      # 5a) LG WebOS TV
       - if:
           - condition: template
-            value_template: "{{ current_tv_notify and tv_notify_entities|length > 0 }}"
+            value_template: "{{ current_tv_notify and lg_tv_enable }}"
           - condition: and
-            conditions: !input tv_notify_conditions
+            conditions: !input lg_tv_conditions
+        then:
+          - service: notify.lg_webos_smart_tv
+            data:
+              title: "{{ lg_tv_message_title }}"
+              message: "{{ lg_tv_message_text }}"
+      
+      # 5b) Other TV/Notify services
+      - if:
+          - condition: template
+            value_template: "{{ current_tv_notify and other_notify_entities|length > 0 }}"
+          - condition: and
+            conditions: !input other_notify_conditions
         then:
           - repeat:
-              for_each: "{{ tv_notify_entities }}"
+              for_each: "{{ other_notify_entities }}"
               sequence:
                 - service: "{{ repeat.item }}"
                   data:
-                    title: "{{ tv_message_title }}"
-                    message: "{{ tv_message_text }}"
+                    title: "{{ other_notify_title }}"
+                    message: "{{ other_notify_text }}"
       
       # 6) TTS announcement
       - if:
