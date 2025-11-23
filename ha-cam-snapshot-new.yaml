@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.1"
+  name: "Camera Event Notification 2.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -201,7 +201,8 @@ blueprint:
 
         tts_message:
           name: "TTS Nachricht"
-          default: "Achtung! {{ camera_friendly }} meldet: Bewegung erkannt, Stufe {{ notification_level | default('unbekannt') }}"
+          description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
+          default: "Achtung! {{ camera_friendly }} meldet Bewegung, Stufe {{ notification_level }}"
           selector:
             text:
 
@@ -374,7 +375,8 @@ blueprint:
 
         lg_tv_message_text:
           name: "LG TV Nachricht Text"
-          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level | default('unbekannt') }})"
+          description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
+          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level }})"
           selector:
             text:
 
@@ -403,7 +405,8 @@ blueprint:
 
         other_notify_text:
           name: "Weitere Services - Text"
-          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level | default('unbekannt') }})"
+          description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
+          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level }})"
           selector:
             text:
 
@@ -1499,9 +1502,7 @@ action:
           - service: notify.lg_webos_smart_tv
             data:
               title: "{{ lg_tv_message_title }}"
-              message: >
-                {% set base_msg = lg_tv_message_text %}
-                {{ base_msg }}
+              message: "{{ lg_tv_message_text }}"
       
       # 5b) Other TV/Notify services
       - if:
@@ -1516,9 +1517,7 @@ action:
                 - service: "{{ repeat.item }}"
                   data:
                     title: "{{ other_notify_title }}"
-                    message: >
-                      {% set base_msg = other_notify_text %}
-                      {{ base_msg }}
+                    message: "{{ other_notify_text }}"
       
       # 6) TTS announcement
       - if:
@@ -1547,9 +1546,7 @@ action:
                         data:
                           cache: false
                           media_player_entity_id: "{{ repeat.item }}"
-                          message: >
-                            {% set base_msg = tts_message %}
-                            {{ base_msg }}
+                          message: "{{ tts_message }}"
       
       # 7) Alarm repetitions
       - if:
@@ -1604,10 +1601,10 @@ action:
               max_tokens: !input max_tokens
             response_variable: response
       
-      # 9) Update push
+      # 9) Update push (nur wenn response definiert ist)
       - if:
           - condition: template
-            value_template: "{{ current_update_push and response is defined and response.response_text }}"
+            value_template: "{{ current_update_push and response is defined and response.response_text is defined }}"
         then:
           - repeat:
               for_each: "{{ notify_services_all }}"
