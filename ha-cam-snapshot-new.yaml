@@ -11,7 +11,7 @@ blueprint:
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
 
   input:
     # =======================
@@ -201,7 +201,7 @@ blueprint:
 
         tts_message:
           name: "TTS Nachricht"
-          default: "Achtung! {{ camera_friendly }} meldet: {{ response.response_text | default('Bewegung erkannt') }}"
+          default: "Achtung! {{ camera_friendly }} meldet: Bewegung erkannt, Stufe {{ notification_level | default('unbekannt') }}"
           selector:
             text:
 
@@ -374,7 +374,7 @@ blueprint:
 
         lg_tv_message_text:
           name: "LG TV Nachricht Text"
-          default: "{{ camera_friendly }}: {{ response.response_text | default('Bewegung erkannt') }}"
+          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level | default('unbekannt') }})"
           selector:
             text:
 
@@ -403,7 +403,7 @@ blueprint:
 
         other_notify_text:
           name: "Weitere Services - Text"
-          default: "{{ camera_friendly }}: {{ response.response_text | default('Bewegung erkannt') }}"
+          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level | default('unbekannt') }})"
           selector:
             text:
 
@@ -1499,7 +1499,9 @@ action:
           - service: notify.lg_webos_smart_tv
             data:
               title: "{{ lg_tv_message_title }}"
-              message: "{{ lg_tv_message_text }}"
+              message: >
+                {% set base_msg = lg_tv_message_text %}
+                {{ base_msg }}
       
       # 5b) Other TV/Notify services
       - if:
@@ -1514,7 +1516,9 @@ action:
                 - service: "{{ repeat.item }}"
                   data:
                     title: "{{ other_notify_title }}"
-                    message: "{{ other_notify_text }}"
+                    message: >
+                      {% set base_msg = other_notify_text %}
+                      {{ base_msg }}
       
       # 6) TTS announcement
       - if:
@@ -1543,7 +1547,9 @@ action:
                         data:
                           cache: false
                           media_player_entity_id: "{{ repeat.item }}"
-                          message: "{{ tts_message }}"
+                          message: >
+                            {% set base_msg = tts_message %}
+                            {{ base_msg }}
       
       # 7) Alarm repetitions
       - if:
