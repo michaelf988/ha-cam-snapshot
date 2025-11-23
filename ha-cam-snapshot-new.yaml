@@ -1596,7 +1596,7 @@ action:
                                 volume: "{{ notification_volume }}"
                                 critical: true
       
-# 8) Stream analysis
+      # 8) Stream analysis mit verschachteltem Update-Push
       - if:
           - condition: template
             value_template: "{{ current_stream_analyze and camera_entity_snapshot != '' }}"
@@ -1616,32 +1616,32 @@ action:
               max_tokens: !input max_tokens
             response_variable: response
           
-# 9) Update push (direkt nach Stream-Analyse, wenn erfolgreich)
-      - if:
-          - condition: template
-            value_template: "{{ current_update_push and (response.response_text | default('')) != '' }}"
-        then:
-          - repeat:
-              for_each: "{{ notify_services_all }}"
-              sequence:
-                - service: "notify.{{ repeat.item }}"
-                  data:
-                    title: "{{ camera }} - Update {{ notification_time }}"
-                    message: "{{ response.response_text | default('Stream-Analyse abgeschlossen') }} ({{ notification_level }})"
-                    data:
-                      url: "{{ tap_navigate }}"
-                      clickAction: "{{ tap_navigate }}"
-                      tag: "{{ notification_tag }}"
-                      group: "cams"
-                      attachment:
-                        url: "{{ snapshot_access_file_path }}"
-                        content_type: JPEG
-                      push:
-                        interruption-level: "{{ notification_level }}"
-                        sound:
-                          name: "{{ notification_sound }}"
-                          volume: "{{ notification_volume }}"
-                          critical: "{{ notification_level == 'critical' }}"
+          # 9) Update push (direkt nach Stream-Analyse, wenn erfolgreich)
+          - if:
+              - condition: template
+                value_template: "{{ current_update_push and (response.response_text | default('')) != '' }}"
+            then:
+              - repeat:
+                  for_each: "{{ notify_services_all }}"
+                  sequence:
+                    - service: "notify.{{ repeat.item }}"
+                      data:
+                        title: "{{ camera }} - Update {{ notification_time }}"
+                        message: "{{ response.response_text | default('Stream-Analyse abgeschlossen') }} ({{ notification_level }})"
+                        data:
+                          url: "{{ tap_navigate }}"
+                          clickAction: "{{ tap_navigate }}"
+                          tag: "{{ notification_tag }}"
+                          group: "cams"
+                          attachment:
+                            url: "{{ snapshot_access_file_path }}"
+                            content_type: JPEG
+                          push:
+                            interruption-level: "{{ notification_level }}"
+                            sound:
+                              name: "{{ notification_sound }}"
+                              volume: "{{ notification_volume }}"
+                              critical: "{{ notification_level == 'critical' }}"
   
   # Global cooldown
   - delay: !input global_cooldown
