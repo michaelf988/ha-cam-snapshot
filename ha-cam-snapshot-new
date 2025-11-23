@@ -1,0 +1,1624 @@
+blueprint:
+  name: "Camera Event Notification 2.0"
+  author: "MF"
+  homeassistant:
+    min_version: 2024.10.0
+  description: >
+    Szenario-basierte Kamera-Überwachung mit 6 konfigurierbaren Modi.
+    Unterstützt mobile Benachrichtigungen, TV-Notifications, TTS-Ansagen,
+    AI-Analysen und mehr. Jedes Szenario kann individuell konfiguriert werden
+    basierend auf Anwesenheit, Alarmanlage-Status oder manuellen Triggern.
+
+  domain: automation
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
+
+  input:
+    # =======================
+    # 1. KAMERAS & SENSOREN
+    # =======================
+    cameras_section:
+      name: "Kameras & Sensoren"
+      description: "Kamera- und Bewegungsmelder-Einstellungen"
+      icon: mdi:camera
+      collapsed: true
+      input:
+        camera_entities:
+          name: "Camera Entities"
+          description: "Eine oder mehrere Kameras"
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: camera
+
+        trigger_state:
+          name: "Trigger State"
+          description: "Automation startet, wenn Kamera in diesen Zustand wechselt"
+          default: "recording"
+          selector:
+            text:
+
+        motion_sensors:
+          name: "Motion Sensors (optional)"
+          description: "Alternative Bewegungsmelder, Reihenfolge = Kamera-Reihenfolge"
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: binary_sensor
+
+    # =======================
+    # 2. SPEICHERUNG
+    # =======================
+    storage_section:
+      name: "Speicherung"
+      description: "Dateipfade und Snapshot-Einstellungen"
+      icon: mdi:folder
+      collapsed: true
+      input:
+        timestamp_filenames:
+          name: "Zeitstempel-Dateinamen"
+          description: "Speichert als YYYY-MM-DD_HH-MM-SS.jpg"
+          default: true
+          selector:
+            boolean:
+            
+        timestamp_format:
+          name: "Zeitstempel-Format"
+          default: "%Y-%m-%d_%H-%M-%S"
+          selector:
+            text:
+
+        snapshot_dir_fs:
+          name: "Basis-Pfad (Dateisystem)"
+          description: "z.B. /config/www/snapshots"
+          default: "/config/www/snapshots"
+          selector:
+            text:
+            
+        snapshot_dir_web:
+          name: "Basis-Pfad (Web)"
+          description: "z.B. /local/snapshots"
+          default: "/local/snapshots"
+          selector:
+            text:
+
+    # =======================
+    # 3. AI GRUNDEINSTELLUNGEN
+    # =======================
+    ai_base_section:
+      name: "AI Grundeinstellungen"
+      description: "Provider und technische Parameter für AI-Analysen"
+      icon: mdi:brain
+      collapsed: true
+      input:
+        provider:
+          name: "AI Provider"
+          description: "LLMVision Provider für Analysen"
+          selector:
+            config_entry:
+              integration: llmvision
+
+        model:
+          name: "AI Model"
+          default: "gpt-4o-mini"
+          selector:
+            text:
+
+        target_width:
+          name: "Bild-Breite (Pixel)"
+          default: 1280
+          selector:
+            number:
+              min: 512
+              max: 3840
+
+        max_frames:
+          name: "Max Frames (Stream-Analyse)"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 60
+
+        duration:
+          name: "Stream-Dauer (Sekunden)"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 60
+
+        max_tokens:
+          name: "Max Tokens"
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 300
+
+        importance_prompt:
+          name: "Wichtigkeits-Analyse Prompt"
+          description: "Muss eines zurückgeben: passive, active, time-sensitive, critical"
+          default: >
+            The current time is {{ now().strftime('%H:%M') }}.
+            Classify the security relevance of this camera image using ONLY one of these labels:
+            "passive" – no person, no threat
+            "active" – possible person or unclear
+            "time-sensitive" – definitely a person
+            "critical" – dangerous situation or person at night (00:00–05:00)
+            Return ONE label ONLY.
+          selector:
+            text:
+              multiline: true
+
+        stream_prompt:
+          name: "Stream-Analyse Prompt"
+          default: >
+            Antworte NUR mit einem kurzen Stichwort:
+            "Person erkannt", "Fahrzeug erkannt", "Tier erkannt", 
+            "Mehrere Personen", "Unklar", "Keine Bewegung"
+          selector:
+            text:
+              multiline: true
+
+    # =======================
+    # 4. TTS GRUNDEINSTELLUNGEN
+    # =======================
+    tts_base_section:
+      name: "Text-to-Speech Grundeinstellungen"
+      description: "Sprachausgabe-Konfiguration"
+      icon: mdi:volume-high
+      collapsed: true
+      input:
+        tts_target_entity:
+          name: "TTS Service"
+          description: "z.B. tts.home_assistant_cloud"
+          selector:
+            entity:
+              filter:
+                domain: tts
+
+        tts_media_players:
+          name: "Lautsprecher für TTS"
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: media_player
+
+        tts_volume:
+          name: "TTS Lautstärke"
+          default: 0.7
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.05
+
+        tts_message:
+          name: "TTS Nachricht"
+          default: "Achtung! {{ camera_friendly }} meldet: {{ response.response_text | default('Bewegung erkannt') }}"
+          selector:
+            text:
+
+        tts_repeat_count:
+          name: "TTS Wiederholungen"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        tts_repeat_delay:
+          name: "Pause zwischen Wiederholungen"
+          default: { seconds: 2 }
+          selector:
+            duration: {}
+
+    # =======================
+    # 5. MOBILE BENACHRICHTIGUNGEN
+    # =======================
+    mobile_notifications_section:
+      name: "Mobile Benachrichtigungen"
+      description: "iOS/Android Companion App Einstellungen"
+      icon: mdi:cellphone
+      collapsed: true
+      input:
+        notify_device:
+          name: "Mobile Geräte"
+          selector:
+            device:
+              multiple: true
+              filter:
+                integration: mobile_app
+
+        notification_time:
+          name: "Zeit im Titel"
+          default: ""
+          selector:
+            select:
+              options:
+                - label: "Keine Zeit"
+                  value: ""
+                - label: "Mit Uhrzeit"
+                  value: "um {{ now().strftime('%H:%M') }}"
+
+        notification_sound:
+          name: "Benachrichtigungston"
+          default: "LiquidDetected.caf"
+          selector:
+            text:
+
+        notification_volume:
+          name: "Ton-Lautstärke"
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.1
+
+        delay_notification:
+          name: "Cooldown zwischen Benachrichtigungen"
+          description: "Verhindert Spam bei mehrfachen Triggern"
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 600
+              unit_of_measurement: seconds
+
+        alarm_repetition_count:
+          name: "Alarm-Wiederholungen (wenn aktiv)"
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 20
+
+        alarm_repetition_delay:
+          name: "Pause zwischen Alarm-Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
+
+        # Action Buttons
+        action1_enabled:
+          name: "Button 1 aktivieren"
+          default: true
+          selector:
+            boolean:
+        action1_title:
+          name: "Button 1 Text"
+          default: "Öffnen"
+          selector:
+            text:
+        action1_icon:
+          name: "Button 1 Icon"
+          default: "sfsymbols:eye"
+          selector:
+            text:
+        action1_destructive:
+          name: "Button 1 Rot markieren"
+          default: false
+          selector:
+            boolean:
+
+        action2_enabled:
+          name: "Button 2 aktivieren"
+          default: true
+          selector:
+            boolean:
+        action2_title:
+          name: "Button 2 Text"
+          default: "Snooze 15min"
+          selector:
+            text:
+        action2_icon:
+          name: "Button 2 Icon"
+          default: "sfsymbols:moon.zzz"
+          selector:
+            text:
+        action2_destructive:
+          name: "Button 2 Rot markieren"
+          default: false
+          selector:
+            boolean:
+
+        action3_enabled:
+          name: "Button 3 aktivieren"
+          default: false
+          selector:
+            boolean:
+        action3_title:
+          name: "Button 3 Text"
+          default: "Alarm aus"
+          selector:
+            text:
+        action3_icon:
+          name: "Button 3 Icon"
+          default: "sfsymbols:bell.slash"
+          selector:
+            text:
+        action3_destructive:
+          name: "Button 3 Rot markieren"
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # 6. TV & WEITERE GERÄTE
+    # =======================
+    additional_notifications_section:
+      name: "TV & weitere Benachrichtigungen"
+      description: "Nicht-mobile Benachrichtigungsgeräte"
+      icon: mdi:television
+      collapsed: true
+      input:
+        tv_notify_entities:
+          name: "TV Notify Services"
+          description: "z.B. notify.lg_webos_smart_tv"
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: notify
+
+        tv_notify_conditions:
+          name: "Bedingungen für TV-Benachrichtigungen"
+          description: "z.B. TV muss eingeschaltet sein"
+          default: []
+          selector:
+            condition:
+
+        tv_message_title:
+          name: "TV Nachricht Titel"
+          default: "Sicherheitswarnung"
+          selector:
+            text:
+
+        tv_message_text:
+          name: "TV Nachricht Text"
+          default: "{{ camera_friendly }}: {{ response.response_text | default('Bewegung erkannt') }}"
+          selector:
+            text:
+
+    # =======================
+    # 7. SZENARIO-STEUERUNG
+    # =======================
+    scenario_control_section:
+      name: "Szenario-Steuerung"
+      description: "Wie wird das aktive Szenario bestimmt?"
+      icon: mdi:home-automation
+      collapsed: false
+      input:
+        scenario_mode:
+          name: "Szenario-Modus"
+          default: "auto"
+          selector:
+            select:
+              options:
+                - label: "Automatisch (nach Bedingungen)"
+                  value: "auto"
+                - label: "Manuell (Helper Entity)"
+                  value: "manual"
+                - label: "Fest (immer gleiches Szenario)"
+                  value: "fixed"
+
+        scenario_helper:
+          name: "Szenario Helper Entity"
+          description: "Für manuellen Modus (input_select mit Werten 1-6)"
+          default: ""
+          selector:
+            entity:
+              filter:
+                domain: input_select
+
+        scenario_fixed:
+          name: "Festes Szenario"
+          description: "Für festen Modus"
+          default: "3"
+          selector:
+            select:
+              options:
+                - "1"
+                - "2"
+                - "3"
+                - "4"
+                - "5"
+                - "6"
+
+        scenario_fallback:
+          name: "Fallback Szenario"
+          description: "Wenn keine Bedingung zutrifft"
+          default: "3"
+          selector:
+            select:
+              options:
+                - "1"
+                - "2"
+                - "3"
+                - "4"
+                - "5"
+                - "6"
+
+    # =======================
+    # SZENARIO 1
+    # =======================
+    scenario_1_section:
+      name: "Szenario 1: Anwesend, Alarmanlage intern scharf"
+      description: "Höchste Sicherheit bei Anwesenheit"
+      icon: mdi:shield-home
+      collapsed: true
+      input:
+        s1_enabled:
+          name: "Szenario aktiviert"
+          default: true
+          selector:
+            boolean:
+
+        s1_conditions:
+          name: "Aktivierungsbedingungen"
+          description: "Alle müssen erfüllt sein"
+          default: []
+          selector:
+            condition:
+
+        s1_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s1_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: true
+          selector:
+            boolean:
+
+        s1_force_person_level:
+          name: "Personen-Erkennung überschreiben"
+          default: "critical"
+          selector:
+            select:
+              options:
+                - label: "Nicht überschreiben"
+                  value: ""
+                - label: "Immer Critical"
+                  value: "critical"
+                - label: "Mindestens Time-sensitive"
+                  value: "min_time_sensitive"
+                - label: "Mindestens Active"
+                  value: "min_active"
+
+        s1_gate_enable:
+          name: "Gate aktivieren"
+          default: true
+          selector:
+            boolean:
+
+        s1_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "passive"
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
+        s1_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s1_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s1_tts_enable:
+          name: "Sprachansage"
+          default: true
+          selector:
+            boolean:
+
+        s1_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s1_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: true
+          selector:
+            boolean:
+
+        s1_stream_analyze:
+          name: "Stream-Analyse"
+          default: true
+          selector:
+            boolean:
+
+        s1_update_push:
+          name: "Update-Push nach Analyse"
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 2
+    # =======================
+    scenario_2_section:
+      name: "Szenario 2: Anwesend, spät abends, unscharf"
+      description: "Erhöhte Aufmerksamkeit am Abend"
+      icon: mdi:weather-night
+      collapsed: true
+      input:
+        s2_enabled:
+          name: "Szenario aktiviert"
+          default: true
+          selector:
+            boolean:
+
+        s2_conditions:
+          name: "Aktivierungsbedingungen"
+          default: []
+          selector:
+            condition:
+
+        s2_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s2_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: true
+          selector:
+            boolean:
+
+        s2_force_person_level:
+          name: "Personen-Erkennung überschreiben"
+          default: "min_time_sensitive"
+          selector:
+            select:
+              options:
+                - label: "Nicht überschreiben"
+                  value: ""
+                - label: "Immer Critical"
+                  value: "critical"
+                - label: "Mindestens Time-sensitive"
+                  value: "min_time_sensitive"
+                - label: "Mindestens Active"
+                  value: "min_active"
+
+        s2_gate_enable:
+          name: "Gate aktivieren"
+          default: true
+          selector:
+            boolean:
+
+        s2_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "active"
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
+        s2_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s2_tv_notify:
+          name: "TV Benachrichtigung"
+          default: true
+          selector:
+            boolean:
+
+        s2_tts_enable:
+          name: "Sprachansage"
+          default: false
+          selector:
+            boolean:
+
+        s2_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s2_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: false
+          selector:
+            boolean:
+
+        s2_stream_analyze:
+          name: "Stream-Analyse"
+          default: false
+          selector:
+            boolean:
+
+        s2_update_push:
+          name: "Update-Push nach Analyse"
+          default: false
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 3
+    # =======================
+    scenario_3_section:
+      name: "Szenario 3: Anwesend, tagsüber, unscharf"
+      description: "Minimale Überwachung tagsüber"
+      icon: mdi:weather-sunny
+      collapsed: true
+      input:
+        s3_enabled:
+          name: "Szenario aktiviert"
+          default: true
+          selector:
+            boolean:
+
+        s3_conditions:
+          name: "Aktivierungsbedingungen"
+          default: []
+          selector:
+            condition:
+
+        s3_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s3_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: false
+          selector:
+            boolean:
+
+        s3_force_person_level:
+          name: "Personen-Erkennung überschreiben"
+          default: ""
+          selector:
+            select:
+              options:
+                - label: "Nicht überschreiben"
+                  value: ""
+                - label: "Immer Critical"
+                  value: "critical"
+                - label: "Mindestens Time-sensitive"
+                  value: "min_time_sensitive"
+                - label: "Mindestens Active"
+                  value: "min_active"
+
+        s3_gate_enable:
+          name: "Gate aktivieren"
+          default: false
+          selector:
+            boolean:
+
+        s3_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "time-sensitive"
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
+        s3_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s3_tv_notify:
+          name: "TV Benachrichtigung"
+          default: true
+          selector:
+            boolean:
+
+        s3_tts_enable:
+          name: "Sprachansage"
+          default: false
+          selector:
+            boolean:
+
+        s3_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s3_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: false
+          selector:
+            boolean:
+
+        s3_stream_analyze:
+          name: "Stream-Analyse"
+          default: false
+          selector:
+            boolean:
+
+        s3_update_push:
+          name: "Update-Push nach Analyse"
+          default: false
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 4
+    # =======================
+    scenario_4_section:
+      name: "Szenario 4: Abwesend, Alarmanlage extern scharf"
+      description: "Maximale Sicherheit bei Abwesenheit"
+      icon: mdi:shield-lock
+      collapsed: true
+      input:
+        s4_enabled:
+          name: "Szenario aktiviert"
+          default: true
+          selector:
+            boolean:
+
+        s4_conditions:
+          name: "Aktivierungsbedingungen"
+          default: []
+          selector:
+            condition:
+
+        s4_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s4_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: true
+          selector:
+            boolean:
+
+        s4_force_person_level:
+          name: "Personen-Erkennung überschreiben"
+          default: "min_time_sensitive"
+          selector:
+            select:
+              options:
+                - label: "Nicht überschreiben"
+                  value: ""
+                - label: "Immer Critical"
+                  value: "critical"
+                - label: "Mindestens Time-sensitive"
+                  value: "min_time_sensitive"
+                - label: "Mindestens Active"
+                  value: "min_active"
+
+        s4_gate_enable:
+          name: "Gate aktivieren"
+          default: true
+          selector:
+            boolean:
+
+        s4_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "active"
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
+        s4_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s4_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s4_tts_enable:
+          name: "Sprachansage"
+          default: false
+          selector:
+            boolean:
+
+        s4_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s4_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: true
+          selector:
+            boolean:
+
+        s4_alarm_conditions:
+          name: "Zusätzliche Alarm-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s4_stream_analyze:
+          name: "Stream-Analyse"
+          default: true
+          selector:
+            boolean:
+
+        s4_update_push:
+          name: "Update-Push nach Analyse"
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 5
+    # =======================
+    scenario_5_section:
+      name: "Szenario 5: Abwesend, Alarmanlage nicht scharf"
+      description: "Basis-Überwachung ohne Alarm"
+      icon: mdi:home-outline
+      collapsed: true
+      input:
+        s5_enabled:
+          name: "Szenario aktiviert"
+          default: true
+          selector:
+            boolean:
+
+        s5_conditions:
+          name: "Aktivierungsbedingungen"
+          default: []
+          selector:
+            condition:
+
+        s5_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s5_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: true
+          selector:
+            boolean:
+
+        s5_force_person_level:
+          name: "Personen-Erkennung überschreiben"
+          default: "min_active"
+          selector:
+            select:
+              options:
+                - label: "Nicht überschreiben"
+                  value: ""
+                - label: "Immer Critical"
+                  value: "critical"
+                - label: "Mindestens Time-sensitive"
+                  value: "min_time_sensitive"
+                - label: "Mindestens Active"
+                  value: "min_active"
+
+        s5_gate_enable:
+          name: "Gate aktivieren"
+          default: false
+          selector:
+            boolean:
+
+        s5_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "active"
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
+        s5_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s5_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s5_tts_enable:
+          name: "Sprachansage"
+          default: false
+          selector:
+            boolean:
+
+        s5_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s5_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: false
+          selector:
+            boolean:
+
+        s5_stream_analyze:
+          name: "Stream-Analyse"
+          default: false
+          selector:
+            boolean:
+
+        s5_update_push:
+          name: "Update-Push nach Analyse"
+          default: false
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 6
+    # =======================
+    scenario_6_section:
+      name: "Szenario 6: Manueller Modus"
+      description: "Flexibel über Helper konfigurierbar"
+      icon: mdi:hand-pointing-right
+      collapsed: true
+      input:
+        s6_enabled:
+          name: "Szenario aktiviert"
+          default: true
+          selector:
+            boolean:
+
+        s6_conditions:
+          name: "Aktivierungsbedingungen"
+          description: "Oder wenn scenario_helper = '6'"
+          default: []
+          selector:
+            condition:
+
+        s6_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s6_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: true
+          selector:
+            boolean:
+
+        s6_force_person_level:
+          name: "Personen-Erkennung überschreiben"
+          default: "min_time_sensitive"
+          selector:
+            select:
+              options:
+                - label: "Nicht überschreiben"
+                  value: ""
+                - label: "Immer Critical"
+                  value: "critical"
+                - label: "Mindestens Time-sensitive"
+                  value: "min_time_sensitive"
+                - label: "Mindestens Active"
+                  value: "min_active"
+
+        s6_gate_enable:
+          name: "Gate aktivieren"
+          default: false
+          selector:
+            boolean:
+
+        s6_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "active"
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+
+        s6_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s6_tv_notify:
+          name: "TV Benachrichtigung"
+          default: true
+          selector:
+            boolean:
+
+        s6_tts_enable:
+          name: "Sprachansage"
+          default: true
+          selector:
+            boolean:
+
+        s6_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s6_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: true
+          selector:
+            boolean:
+
+        s6_stream_analyze:
+          name: "Stream-Analyse"
+          default: true
+          selector:
+            boolean:
+
+        s6_update_push:
+          name: "Update-Push nach Analyse"
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # SONSTIGES
+    # =======================
+    misc_section:
+      name: "Sonstiges"
+      description: "Globale Einstellungen"
+      icon: mdi:cog
+      collapsed: true
+      input:
+        global_cooldown:
+          name: "Globaler Cooldown"
+          description: "Pause am Ende der Automation"
+          default: { seconds: 20 }
+          selector:
+            duration: {}
+
+# ================= Variables =================
+variables:
+  # Basic inputs
+  camera_entities_list: !input camera_entities
+  motion_sensors_list: !input motion_sensors
+  notify_devices: !input notify_device
+  
+  # AI settings
+  provider: !input provider
+  model: !input model
+  target_width: !input target_width
+  max_frames: !input max_frames
+  duration: !input duration
+  max_tokens: !input max_tokens
+  importance_prompt: !input importance_prompt
+  stream_prompt: !input stream_prompt
+  
+  # Storage settings
+  timestamp_filenames: !input timestamp_filenames
+  timestamp_format: !input timestamp_format
+  snapshot_dir_fs_base: !input snapshot_dir_fs
+  snapshot_dir_web_base: !input snapshot_dir_web
+  
+  # Notification settings
+  notification_time: !input notification_time
+  notification_sound: !input notification_sound
+  notification_volume: !input notification_volume
+  delay_notification: !input delay_notification
+  alarm_repetition_count: !input alarm_repetition_count
+  alarm_repetition_delay: !input alarm_repetition_delay
+  
+  # TTS settings
+  tts_target_entity: !input tts_target_entity
+  tts_media_players: !input tts_media_players
+  tts_volume: !input tts_volume
+  tts_message: !input tts_message
+  tts_repeat_count: !input tts_repeat_count
+  tts_repeat_delay: !input tts_repeat_delay
+  
+  # TV settings
+  tv_notify_entities: !input tv_notify_entities
+  tv_notify_conditions: !input tv_notify_conditions
+  tv_message_title: !input tv_message_title
+  tv_message_text: !input tv_message_text
+  
+  # Action buttons
+  action1_enabled: !input action1_enabled
+  action1_title: !input action1_title
+  action1_icon: !input action1_icon
+  action1_destructive: !input action1_destructive
+  
+  action2_enabled: !input action2_enabled
+  action2_title: !input action2_title
+  action2_icon: !input action2_icon
+  action2_destructive: !input action2_destructive
+  
+  action3_enabled: !input action3_enabled
+  action3_title: !input action3_title
+  action3_icon: !input action3_icon
+  action3_destructive: !input action3_destructive
+  
+  # Scenario control
+  scenario_mode: !input scenario_mode
+  scenario_helper: !input scenario_helper
+  scenario_fixed: !input scenario_fixed
+  scenario_fallback: !input scenario_fallback
+  
+  # All scenario settings
+  s1_enabled: !input s1_enabled
+  s1_conditions: !input s1_conditions
+  s1_snapshot: !input s1_snapshot
+  s1_importance_check: !input s1_importance_check
+  s1_force_person_level: !input s1_force_person_level
+  s1_gate_enable: !input s1_gate_enable
+  s1_gate_threshold: !input s1_gate_threshold
+  s1_mobile_push: !input s1_mobile_push
+  s1_tv_notify: !input s1_tv_notify
+  s1_tts_enable: !input s1_tts_enable
+  s1_tts_conditions: !input s1_tts_conditions
+  s1_alarm_mode: !input s1_alarm_mode
+  s1_stream_analyze: !input s1_stream_analyze
+  s1_update_push: !input s1_update_push
+  
+  s2_enabled: !input s2_enabled
+  s2_conditions: !input s2_conditions
+  s2_snapshot: !input s2_snapshot
+  s2_importance_check: !input s2_importance_check
+  s2_force_person_level: !input s2_force_person_level
+  s2_gate_enable: !input s2_gate_enable
+  s2_gate_threshold: !input s2_gate_threshold
+  s2_mobile_push: !input s2_mobile_push
+  s2_tv_notify: !input s2_tv_notify
+  s2_tts_enable: !input s2_tts_enable
+  s2_tts_conditions: !input s2_tts_conditions
+  s2_alarm_mode: !input s2_alarm_mode
+  s2_stream_analyze: !input s2_stream_analyze
+  s2_update_push: !input s2_update_push
+  
+  s3_enabled: !input s3_enabled
+  s3_conditions: !input s3_conditions
+  s3_snapshot: !input s3_snapshot
+  s3_importance_check: !input s3_importance_check
+  s3_force_person_level: !input s3_force_person_level
+  s3_gate_enable: !input s3_gate_enable
+  s3_gate_threshold: !input s3_gate_threshold
+  s3_mobile_push: !input s3_mobile_push
+  s3_tv_notify: !input s3_tv_notify
+  s3_tts_enable: !input s3_tts_enable
+  s3_tts_conditions: !input s3_tts_conditions
+  s3_alarm_mode: !input s3_alarm_mode
+  s3_stream_analyze: !input s3_stream_analyze
+  s3_update_push: !input s3_update_push
+  
+  s4_enabled: !input s4_enabled
+  s4_conditions: !input s4_conditions
+  s4_snapshot: !input s4_snapshot
+  s4_importance_check: !input s4_importance_check
+  s4_force_person_level: !input s4_force_person_level
+  s4_gate_enable: !input s4_gate_enable
+  s4_gate_threshold: !input s4_gate_threshold
+  s4_mobile_push: !input s4_mobile_push
+  s4_tv_notify: !input s4_tv_notify
+  s4_tts_enable: !input s4_tts_enable
+  s4_tts_conditions: !input s4_tts_conditions
+  s4_alarm_mode: !input s4_alarm_mode
+  s4_alarm_conditions: !input s4_alarm_conditions
+  s4_stream_analyze: !input s4_stream_analyze
+  s4_update_push: !input s4_update_push
+  
+  s5_enabled: !input s5_enabled
+  s5_conditions: !input s5_conditions
+  s5_snapshot: !input s5_snapshot
+  s5_importance_check: !input s5_importance_check
+  s5_force_person_level: !input s5_force_person_level
+  s5_gate_enable: !input s5_gate_enable
+  s5_gate_threshold: !input s5_gate_threshold
+  s5_mobile_push: !input s5_mobile_push
+  s5_tv_notify: !input s5_tv_notify
+  s5_tts_enable: !input s5_tts_enable
+  s5_tts_conditions: !input s5_tts_conditions
+  s5_alarm_mode: !input s5_alarm_mode
+  s5_stream_analyze: !input s5_stream_analyze
+  s5_update_push: !input s5_update_push
+  
+  s6_enabled: !input s6_enabled
+  s6_conditions: !input s6_conditions
+  s6_snapshot: !input s6_snapshot
+  s6_importance_check: !input s6_importance_check
+  s6_force_person_level: !input s6_force_person_level
+  s6_gate_enable: !input s6_gate_enable
+  s6_gate_threshold: !input s6_gate_threshold
+  s6_mobile_push: !input s6_mobile_push
+  s6_tv_notify: !input s6_tv_notify
+  s6_tts_enable: !input s6_tts_enable
+  s6_tts_conditions: !input s6_tts_conditions
+  s6_alarm_mode: !input s6_alarm_mode
+  s6_stream_analyze: !input s6_stream_analyze
+  s6_update_push: !input s6_update_push
+  
+  global_cooldown: !input global_cooldown
+  
+  # Camera detection
+  camera_entity_snapshot: >
+    {% if trigger is defined and trigger.entity_id %}
+      {% set tid = trigger.entity_id %}
+      {% if tid.startswith('binary_sensor') and (tid in motion_sensors_list) %}
+        {% set i = motion_sensors_list.index(tid) %}
+        {{ camera_entities_list[i] if camera_entities_list|length > i else (camera_entities_list[0] if camera_entities_list|length>0 else '') }}
+      {% elif tid.startswith('camera.') %}
+        {{ tid }}
+      {% else %}
+        {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
+      {% endif %}
+    {% else %}
+      {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
+    {% endif %}
+  
+  # File paths
+  camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
+  camera_file_path: "{{ camera_friendly | slugify }}"
+  snapshot_dir_fs_final: "{{ (snapshot_dir_fs_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
+  snapshot_dir_web_final: "{{ (snapshot_dir_web_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
+  snapshot_filename: "{{ (timestamp_filenames and now().strftime(timestamp_format) or 'last_motion') ~ '.jpg' }}"
+  file_path: "{{ snapshot_dir_fs_final ~ '/' ~ snapshot_filename }}"
+  snapshot_access_file_path: "{{ snapshot_dir_web_final ~ '/' ~ snapshot_filename }}"
+  
+  # Notification metadata
+  label: "Bewegung erkannt"
+  camera: "{{ camera_friendly }}"
+  notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
+  tap_navigate: "/lovelace/cameras"
+  
+  # Level ranking
+  level_rank: "{{ {'passive':0,'active':1,'time-sensitive':2,'critical':3} }}"
+  
+  # Mobile devices
+  device_name_map: >
+    {% set ns = namespace(device_names=[]) %}
+    {% for dev in (notify_devices or []) %}
+      {% set name = device_attr(dev, 'name') | default('', true) %}
+      {% set slug = (name | slugify) | default('', true) %}
+      {% if slug and (slug | length > 0) %}
+        {% set ns.device_names = ns.device_names + ['mobile_app_' ~ slug] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.device_names }}
+  
+  notify_services_all: "{{ device_name_map }}"
+
+# ================= Meta =================
+mode: queued
+max: 25
+max_exceeded: silent
+
+# ================= Trigger =================
+trigger:
+  - platform: state
+    entity_id: !input camera_entities
+    to: !input trigger_state
+    id: "camera_trigger"
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "on"
+    id: "motion_sensor_trigger"
+
+# ================= Actions =================
+action:
+  # Step 0: Determine active scenario
+  - variables:
+      active_scenario: >
+        {% if scenario_mode == 'manual' and scenario_helper %}
+          {{ states(scenario_helper) }}
+        {% elif scenario_mode == 'fixed' %}
+          {{ scenario_fixed }}
+        {% else %}
+          {% if s1_enabled and s1_conditions %}1
+          {% elif s2_enabled and s2_conditions %}2
+          {% elif s3_enabled and s3_conditions %}3
+          {% elif s4_enabled and s4_conditions %}4
+          {% elif s5_enabled and s5_conditions %}5
+          {% elif s6_enabled and s6_conditions %}6
+          {% else %}{{ scenario_fallback }}{% endif %}
+        {% endif %}
+  
+  # Load scenario settings dynamically
+  - variables:
+      current_snapshot: "{{ attribute('s' ~ active_scenario ~ '_snapshot') }}"
+      current_importance: "{{ attribute('s' ~ active_scenario ~ '_importance_check') }}"
+      current_force_level: "{{ attribute('s' ~ active_scenario ~ '_force_person_level') }}"
+      current_gate_enable: "{{ attribute('s' ~ active_scenario ~ '_gate_enable') }}"
+      current_gate_threshold: "{{ attribute('s' ~ active_scenario ~ '_gate_threshold') }}"
+      current_mobile_push: "{{ attribute('s' ~ active_scenario ~ '_mobile_push') }}"
+      current_tv_notify: "{{ attribute('s' ~ active_scenario ~ '_tv_notify') }}"
+      current_tts_enable: "{{ attribute('s' ~ active_scenario ~ '_tts_enable') }}"
+      current_tts_conditions: "{{ attribute('s' ~ active_scenario ~ '_tts_conditions') | default([]) }}"
+      current_alarm_mode: "{{ attribute('s' ~ active_scenario ~ '_alarm_mode') }}"
+      current_alarm_conditions: "{{ attribute('s' ~ active_scenario ~ '_alarm_conditions') | default([]) if active_scenario == '4' else [] }}"
+      current_stream_analyze: "{{ attribute('s' ~ active_scenario ~ '_stream_analyze') }}"
+      current_update_push: "{{ attribute('s' ~ active_scenario ~ '_update_push') }}"
+  
+  # Check notification cooldown
+  - if:
+      - condition: template
+        value_template: >
+          {{ not this.attributes.last_triggered
+             or (now() - this.attributes.last_triggered).seconds > delay_notification }}
+    then:
+      # 1) Create snapshot (if enabled)
+      - if:
+          - condition: template
+            value_template: "{{ current_snapshot and camera_entity_snapshot != '' }}"
+        then:
+          - service: camera.snapshot
+            target:
+              entity_id: "{{ camera_entity_snapshot }}"
+            data:
+              filename: "{{ file_path }}"
+      
+      # 2) Importance analysis (if enabled)
+      - if:
+          - condition: template
+            value_template: "{{ current_importance }}"
+        then:
+          - action: llmvision.image_analyzer
+            metadata: {}
+            data:
+              image_file: "{{ file_path }}"
+              provider: !input provider
+              model: !input model
+              message: "{{ importance_prompt }}"
+              include_filename: true
+              target_width: !input target_width
+              max_tokens: !input max_tokens
+            response_variable: importance
+      
+      # 2b) Normalize and apply force level
+      - variables:
+          importance_raw: >
+            {% if importance is defined and importance.response_text %}
+              {% set t = importance.response_text | lower %}
+              {% if 'critical' in t %}critical
+              {% elif 'time-sensitive' in t or 'time sensitive' in t %}time-sensitive
+              {% elif 'active' in t %}active
+              {% elif 'passive' in t %}passive
+              {% else %}active{% endif %}
+            {% else %}active{% endif %}
+          
+          notification_level: >
+            {% if current_force_level == 'critical' %}
+              critical
+            {% elif current_force_level == 'min_time_sensitive' %}
+              {% if importance_raw in ['critical', 'time-sensitive'] %}{{ importance_raw }}
+              {% else %}time-sensitive{% endif %}
+            {% elif current_force_level == 'min_active' %}
+              {% if importance_raw in ['critical', 'time-sensitive', 'active'] %}{{ importance_raw }}
+              {% else %}active{% endif %}
+            {% else %}
+              {{ importance_raw }}
+            {% endif %}
+      
+      # 3) Gate check
+      - if:
+          - condition: template
+            value_template: "{{ current_gate_enable }}"
+          - condition: template
+            value_template: >
+              {{ (level_rank[notification_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}
+        then:
+          - stop: "Gate: Level '{{ notification_level }}' < Threshold '{{ current_gate_threshold }}'"
+      
+      # 4) Mobile push notification
+      - if:
+          - condition: template
+            value_template: "{{ current_mobile_push }}"
+        then:
+          - repeat:
+              for_each: "{{ notify_services_all }}"
+              sequence:
+                - service: "notify.{{ repeat.item }}"
+                  data:
+                    title: "{{ camera }} - {{ label }} {{ notification_time }}"
+                    message: "Szenario {{ active_scenario }}: {{ notification_level }}"
+                    data:
+                      url: "{{ tap_navigate }}"
+                      clickAction: "{{ tap_navigate }}"
+                      tag: "{{ notification_tag }}"
+                      group: "cams"
+                      attachment:
+                        url: "{{ snapshot_access_file_path }}"
+                        content_type: JPEG
+                      actions: >
+                        {% set out = [] %}
+                        {% if action1_enabled %}
+                          {% set _ = out.append({
+                            'action': 'ACTION_1',
+                            'title': action1_title,
+                            'icon': action1_icon,
+                            'destructive': action1_destructive
+                          }) %}
+                        {% endif %}
+                        {% if action2_enabled %}
+                          {% set _ = out.append({
+                            'action': 'ACTION_2',
+                            'title': action2_title,
+                            'icon': action2_icon,
+                            'destructive': action2_destructive
+                          }) %}
+                        {% endif %}
+                        {% if action3_enabled %}
+                          {% set _ = out.append({
+                            'action': 'ACTION_3',
+                            'title': action3_title,
+                            'icon': action3_icon,
+                            'destructive': action3_destructive
+                          }) %}
+                        {% endif %}
+                        {{ out }}
+                      push:
+                        interruption-level: "{{ notification_level }}"
+                        sound:
+                          name: "{{ notification_sound }}"
+                          volume: "{{ notification_volume }}"
+                          critical: "{{ notification_level == 'critical' }}"
+      
+      # 5) TV notification
+      - if:
+          - condition: template
+            value_template: "{{ current_tv_notify and tv_notify_entities|length > 0 }}"
+          - condition: and
+            conditions: !input tv_notify_conditions
+        then:
+          - repeat:
+              for_each: "{{ tv_notify_entities }}"
+              sequence:
+                - service: "{{ repeat.item }}"
+                  data:
+                    title: "{{ tv_message_title }}"
+                    message: "{{ tv_message_text }}"
+      
+      # 6) TTS announcement
+      - if:
+          - condition: template
+            value_template: "{{ current_tts_enable }}"
+          - condition: and
+            conditions: "{{ current_tts_conditions }}"
+          - condition: template
+            value_template: "{{ tts_media_players|length > 0 and tts_target_entity }}"
+        then:
+          - repeat:
+              count: "{{ tts_repeat_count }}"
+              sequence:
+                - delay: !input tts_repeat_delay
+                - repeat:
+                    for_each: "{{ tts_media_players }}"
+                    sequence:
+                      - service: media_player.volume_set
+                        target:
+                          entity_id: "{{ repeat.item }}"
+                        data:
+                          volume_level: "{{ tts_volume }}"
+                      - service: tts.speak
+                        target:
+                          entity_id: "{{ tts_target_entity }}"
+                        data:
+                          cache: false
+                          media_player_entity_id: "{{ repeat.item }}"
+                          message: "{{ tts_message }}"
+      
+      # 7) Alarm repetitions
+      - if:
+          - condition: template
+            value_template: "{{ current_alarm_mode }}"
+          - condition: and
+            conditions: "{{ current_alarm_conditions if active_scenario == '4' else [] }}"
+        then:
+          - repeat:
+              for_each: "{{ notify_services_all }}"
+              sequence:
+                - repeat:
+                    count: "{{ alarm_repetition_count }}"
+                    sequence:
+                      - delay: !input alarm_repetition_delay
+                      - service: "notify.{{ repeat.item }}"
+                        data:
+                          title: "{{ camera }} - ALARM {{ notification_time }}"
+                          message: "Szenario {{ active_scenario }}: {{ notification_level }}"
+                          data:
+                            url: "{{ tap_navigate }}"
+                            clickAction: "{{ tap_navigate }}"
+                            tag: "{{ notification_tag ~ '_alarm_' ~ repeat.index }}"
+                            group: "cams"
+                            attachment:
+                              url: "{{ snapshot_access_file_path }}"
+                              content_type: JPEG
+                            push:
+                              interruption-level: "critical"
+                              sound:
+                                name: "{{ notification_sound }}"
+                                volume: "{{ notification_volume }}"
+                                critical: true
+      
+      # 8) Stream analysis
+      - if:
+          - condition: template
+            value_template: "{{ current_stream_analyze and camera_entity_snapshot != '' }}"
+        then:
+          - action: llmvision.stream_analyzer
+            metadata: {}
+            data:
+              image_entity:
+                - "{{ camera_entity_snapshot }}"
+              duration: !input duration
+              provider: !input provider
+              model: !input model
+              message: "{{ stream_prompt }}"
+              include_filename: true
+              max_frames: !input max_frames
+              target_width: !input target_width
+              max_tokens: !input max_tokens
+            response_variable: response
+      
+      # 9) Update push
+      - if:
+          - condition: template
+            value_template: "{{ current_update_push and response is defined and response.response_text }}"
+        then:
+          - repeat:
+              for_each: "{{ notify_services_all }}"
+              sequence:
+                - service: "notify.{{ repeat.item }}"
+                  data:
+                    title: "{{ camera }} - Update {{ notification_time }}"
+                    message: "{{ response.response_text }} ({{ notification_level }})"
+                    data:
+                      url: "{{ tap_navigate }}"
+                      clickAction: "{{ tap_navigate }}"
+                      tag: "{{ notification_tag }}"
+                      group: "cams"
+                      attachment:
+                        url: "{{ snapshot_access_file_path }}"
+                        content_type: JPEG
+                      push:
+                        interruption-level: "{{ notification_level }}"
+                        sound:
+                          name: "{{ notification_sound }}"
+                          volume: "{{ notification_volume }}"
+                          critical: "{{ notification_level == 'critical' }}"
+  
+  # Global cooldown
+  - delay: !input global_cooldown
