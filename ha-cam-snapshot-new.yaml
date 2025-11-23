@@ -1369,21 +1369,26 @@ action:
       response:
         response_text: ""
   
-  # Load scenario settings dynamically
+  # Load scenario settings dynamically - ALLE mit default() absichern!
   - variables:
-      current_snapshot: "{{ attribute('s' ~ active_scenario ~ '_snapshot') }}"
-      current_importance: "{{ attribute('s' ~ active_scenario ~ '_importance_check') }}"
-      current_force_level: "{{ attribute('s' ~ active_scenario ~ '_force_person_level') }}"
-      current_gate_enable: "{{ attribute('s' ~ active_scenario ~ '_gate_enable') }}"
-      current_gate_threshold: "{{ attribute('s' ~ active_scenario ~ '_gate_threshold') }}"
-      current_mobile_push: "{{ attribute('s' ~ active_scenario ~ '_mobile_push') }}"
-      current_tv_notify: "{{ attribute('s' ~ active_scenario ~ '_tv_notify') }}"
-      current_tts_enable: "{{ attribute('s' ~ active_scenario ~ '_tts_enable') }}"
+      current_snapshot: "{{ attribute('s' ~ active_scenario ~ '_snapshot') | default(true) }}"
+      current_importance: "{{ attribute('s' ~ active_scenario ~ '_importance_check') | default(false) }}"
+      current_force_level: "{{ attribute('s' ~ active_scenario ~ '_force_person_level') | default('') }}"
+      current_gate_enable: "{{ attribute('s' ~ active_scenario ~ '_gate_enable') | default(false) }}"
+      current_gate_threshold: "{{ attribute('s' ~ active_scenario ~ '_gate_threshold') | default('active') }}"
+      current_mobile_push: "{{ attribute('s' ~ active_scenario ~ '_mobile_push') | default(true) }}"
+      current_tv_notify: "{{ attribute('s' ~ active_scenario ~ '_tv_notify') | default(false) }}"
+      current_tts_enable: "{{ attribute('s' ~ active_scenario ~ '_tts_enable') | default(false) }}"
       current_tts_conditions: "{{ attribute('s' ~ active_scenario ~ '_tts_conditions') | default([]) }}"
-      current_alarm_mode: "{{ attribute('s' ~ active_scenario ~ '_alarm_mode') }}"
-      current_alarm_conditions: "{{ attribute('s' ~ active_scenario ~ '_alarm_conditions') | default([]) if active_scenario == '4' else [] }}"
-      current_stream_analyze: "{{ attribute('s' ~ active_scenario ~ '_stream_analyze') }}"
-      current_update_push: "{{ attribute('s' ~ active_scenario ~ '_update_push') }}"
+      current_alarm_mode: "{{ attribute('s' ~ active_scenario ~ '_alarm_mode') | default(false) }}"
+      current_alarm_conditions: >
+        {% if active_scenario == '4' %}
+          {{ s4_alarm_conditions | default([]) }}
+        {% else %}
+          []
+        {% endif %}
+      current_stream_analyze: "{{ attribute('s' ~ active_scenario ~ '_stream_analyze') | default(false) }}"
+      current_update_push: "{{ attribute('s' ~ active_scenario ~ '_update_push') | default(false) }}"
   
   # Check notification cooldown
   - if:
