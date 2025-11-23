@@ -213,7 +213,7 @@ blueprint:
         tts_message:
           name: "TTS Nachricht"
           description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
-          default: "Achtung! {{ camera_friendly | default('Kamera') }} meldet Bewegung, Stufe {{ notification_level | default('unbekannt') }}"
+          default: "Achtung! Kamera meldet Bewegung"
           selector:
             text:
 
@@ -387,7 +387,7 @@ blueprint:
         lg_tv_message_text:
           name: "LG TV Nachricht Text"
           description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
-          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level }})"
+          default: "Kamera: Bewegung erkannt"
           selector:
             text:
 
@@ -417,7 +417,7 @@ blueprint:
         other_notify_text:
           name: "Weitere Services - Text"
           description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
-          default: "{{ camera_friendly }}: Bewegung erkannt ({{ notification_level }})"
+          default: "Kamera: Bewegung erkannt"
           selector:
             text:
 
@@ -1374,25 +1374,119 @@ action:
         response_text: ""
   
   # Load scenario settings dynamically - ALLE mit default() absichern!
+  # Load scenario settings dynamically - OHNE attribute() Funktion!
   - variables:
-      current_snapshot: "{{ attribute('s' ~ active_scenario ~ '_snapshot') | default(true) }}"
-      current_importance: "{{ attribute('s' ~ active_scenario ~ '_importance_check') | default(false) }}"
-      current_force_level: "{{ attribute('s' ~ active_scenario ~ '_force_person_level') | default('') }}"
-      current_gate_enable: "{{ attribute('s' ~ active_scenario ~ '_gate_enable') | default(false) }}"
-      current_gate_threshold: "{{ attribute('s' ~ active_scenario ~ '_gate_threshold') | default('active') }}"
-      current_mobile_push: "{{ attribute('s' ~ active_scenario ~ '_mobile_push') | default(true) }}"
-      current_tv_notify: "{{ attribute('s' ~ active_scenario ~ '_tv_notify') | default(false) }}"
-      current_tts_enable: "{{ attribute('s' ~ active_scenario ~ '_tts_enable') | default(false) }}"
-      current_tts_conditions: "{{ attribute('s' ~ active_scenario ~ '_tts_conditions') | default([]) }}"
-      current_alarm_mode: "{{ attribute('s' ~ active_scenario ~ '_alarm_mode') | default(false) }}"
+      current_snapshot: >
+        {% if active_scenario == '1' %}{{ s1_snapshot }}
+        {% elif active_scenario == '2' %}{{ s2_snapshot }}
+        {% elif active_scenario == '3' %}{{ s3_snapshot }}
+        {% elif active_scenario == '4' %}{{ s4_snapshot }}
+        {% elif active_scenario == '5' %}{{ s5_snapshot }}
+        {% elif active_scenario == '6' %}{{ s6_snapshot }}
+        {% else %}true{% endif %}
+      
+      current_importance: >
+        {% if active_scenario == '1' %}{{ s1_importance_check }}
+        {% elif active_scenario == '2' %}{{ s2_importance_check }}
+        {% elif active_scenario == '3' %}{{ s3_importance_check }}
+        {% elif active_scenario == '4' %}{{ s4_importance_check }}
+        {% elif active_scenario == '5' %}{{ s5_importance_check }}
+        {% elif active_scenario == '6' %}{{ s6_importance_check }}
+        {% else %}false{% endif %}
+      
+      current_force_level: >
+        {% if active_scenario == '1' %}{{ s1_force_person_level }}
+        {% elif active_scenario == '2' %}{{ s2_force_person_level }}
+        {% elif active_scenario == '3' %}{{ s3_force_person_level }}
+        {% elif active_scenario == '4' %}{{ s4_force_person_level }}
+        {% elif active_scenario == '5' %}{{ s5_force_person_level }}
+        {% elif active_scenario == '6' %}{{ s6_force_person_level }}
+        {% else %}{% endif %}
+      
+      current_gate_enable: >
+        {% if active_scenario == '1' %}{{ s1_gate_enable }}
+        {% elif active_scenario == '2' %}{{ s2_gate_enable }}
+        {% elif active_scenario == '3' %}{{ s3_gate_enable }}
+        {% elif active_scenario == '4' %}{{ s4_gate_enable }}
+        {% elif active_scenario == '5' %}{{ s5_gate_enable }}
+        {% elif active_scenario == '6' %}{{ s6_gate_enable }}
+        {% else %}false{% endif %}
+      
+      current_gate_threshold: >
+        {% if active_scenario == '1' %}{{ s1_gate_threshold }}
+        {% elif active_scenario == '2' %}{{ s2_gate_threshold }}
+        {% elif active_scenario == '3' %}{{ s3_gate_threshold }}
+        {% elif active_scenario == '4' %}{{ s4_gate_threshold }}
+        {% elif active_scenario == '5' %}{{ s5_gate_threshold }}
+        {% elif active_scenario == '6' %}{{ s6_gate_threshold }}
+        {% else %}active{% endif %}
+      
+      current_mobile_push: >
+        {% if active_scenario == '1' %}{{ s1_mobile_push }}
+        {% elif active_scenario == '2' %}{{ s2_mobile_push }}
+        {% elif active_scenario == '3' %}{{ s3_mobile_push }}
+        {% elif active_scenario == '4' %}{{ s4_mobile_push }}
+        {% elif active_scenario == '5' %}{{ s5_mobile_push }}
+        {% elif active_scenario == '6' %}{{ s6_mobile_push }}
+        {% else %}true{% endif %}
+      
+      current_tv_notify: >
+        {% if active_scenario == '1' %}{{ s1_tv_notify }}
+        {% elif active_scenario == '2' %}{{ s2_tv_notify }}
+        {% elif active_scenario == '3' %}{{ s3_tv_notify }}
+        {% elif active_scenario == '4' %}{{ s4_tv_notify }}
+        {% elif active_scenario == '5' %}{{ s5_tv_notify }}
+        {% elif active_scenario == '6' %}{{ s6_tv_notify }}
+        {% else %}false{% endif %}
+      
+      current_tts_enable: >
+        {% if active_scenario == '1' %}{{ s1_tts_enable }}
+        {% elif active_scenario == '2' %}{{ s2_tts_enable }}
+        {% elif active_scenario == '3' %}{{ s3_tts_enable }}
+        {% elif active_scenario == '4' %}{{ s4_tts_enable }}
+        {% elif active_scenario == '5' %}{{ s5_tts_enable }}
+        {% elif active_scenario == '6' %}{{ s6_tts_enable }}
+        {% else %}false{% endif %}
+      
+      current_tts_conditions: >
+        {% if active_scenario == '1' %}{{ s1_tts_conditions }}
+        {% elif active_scenario == '2' %}{{ s2_tts_conditions }}
+        {% elif active_scenario == '3' %}{{ s3_tts_conditions }}
+        {% elif active_scenario == '4' %}{{ s4_tts_conditions }}
+        {% elif active_scenario == '5' %}{{ s5_tts_conditions }}
+        {% elif active_scenario == '6' %}{{ s6_tts_conditions }}
+        {% else %}[]{% endif %}
+      
+      current_alarm_mode: >
+        {% if active_scenario == '1' %}{{ s1_alarm_mode }}
+        {% elif active_scenario == '2' %}{{ s2_alarm_mode }}
+        {% elif active_scenario == '3' %}{{ s3_alarm_mode }}
+        {% elif active_scenario == '4' %}{{ s4_alarm_mode }}
+        {% elif active_scenario == '5' %}{{ s5_alarm_mode }}
+        {% elif active_scenario == '6' %}{{ s6_alarm_mode }}
+        {% else %}false{% endif %}
+      
       current_alarm_conditions: >
-        {% if active_scenario == '4' %}
-          {{ s4_alarm_conditions | default([]) }}
-        {% else %}
-          []
-        {% endif %}
-      current_stream_analyze: "{{ attribute('s' ~ active_scenario ~ '_stream_analyze') | default(false) }}"
-      current_update_push: "{{ attribute('s' ~ active_scenario ~ '_update_push') | default(false) }}"
+        {% if active_scenario == '4' %}{{ s4_alarm_conditions | default([]) }}
+        {% else %}[]{% endif %}
+      
+      current_stream_analyze: >
+        {% if active_scenario == '1' %}{{ s1_stream_analyze }}
+        {% elif active_scenario == '2' %}{{ s2_stream_analyze }}
+        {% elif active_scenario == '3' %}{{ s3_stream_analyze }}
+        {% elif active_scenario == '4' %}{{ s4_stream_analyze }}
+        {% elif active_scenario == '5' %}{{ s5_stream_analyze }}
+        {% elif active_scenario == '6' %}{{ s6_stream_analyze }}
+        {% else %}false{% endif %}
+      
+      current_update_push: >
+        {% if active_scenario == '1' %}{{ s1_update_push }}
+        {% elif active_scenario == '2' %}{{ s2_update_push }}
+        {% elif active_scenario == '3' %}{{ s3_update_push }}
+        {% elif active_scenario == '4' %}{{ s4_update_push }}
+        {% elif active_scenario == '5' %}{{ s5_update_push }}
+        {% elif active_scenario == '6' %}{{ s6_update_push }}
+        {% else %}false{% endif %}
   
   # Check notification cooldown
   - if:
