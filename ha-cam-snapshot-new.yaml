@@ -213,7 +213,7 @@ blueprint:
         tts_message:
           name: "TTS Nachricht"
           description: "Verfügbare Variablen: camera_friendly, notification_level, active_scenario"
-          default: "Achtung! {{ camera_friendly }} meldet Bewegung, Stufe {{ notification_level }}"
+          default: "Achtung! {{ camera_friendly | default('Kamera') }} meldet Bewegung, Stufe {{ notification_level | default('unbekannt') }}"
           selector:
             text:
 
@@ -1127,6 +1127,10 @@ blueprint:
 
 # ================= Variables =================
 variables:
+  # Response sofort initialisieren
+  response:
+    response_text: ""
+  
   # Basic inputs
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
