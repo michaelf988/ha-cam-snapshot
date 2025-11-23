@@ -10,7 +10,7 @@ blueprint:
     basierend auf Anwesenheit, Alarmanlage-Status oder manuellen Triggern.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
 
   input:
     # =======================
