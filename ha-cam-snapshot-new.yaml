@@ -1579,29 +1579,17 @@ action:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
                       actions: >
-                        {% set out = [] %}
+                        {% set actions = [] %}
                         {% if action1_enabled %}
-                          {% set _ = out.append({
-                            'action': 'ACTION_1',
-                            'title': action1_title,
-                            'destructive': action1_destructive
-                          }) %}
+                          {% set actions = actions + [{'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive}] %}
                         {% endif %}
                         {% if action2_enabled %}
-                          {% set _ = out.append({
-                            'action': 'ACTION_2',
-                            'title': action2_title,
-                            'destructive': action2_destructive
-                          }) %}
+                          {% set actions = actions + [{'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive}] %}
                         {% endif %}
                         {% if action3_enabled %}
-                          {% set _ = out.append({
-                            'action': 'ACTION_3',
-                            'title': action3_title,
-                            'destructive': action3_destructive
-                          }) %}
+                          {% set actions = actions + [{'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive}] %}
                         {% endif %}
-                        {{ out }}
+                        {{ actions }}
                       push:
                         interruption-level: "{{ notification_level }}"
                         sound:
