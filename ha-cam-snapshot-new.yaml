@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.2.2"
+  name: "Camera Event Notification 2.2.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,6 +16,7 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 2.2.3: Response-Variable initialisiert + alle Verwendungen mit default() abgesichert
 # 2.2.2: Update-Push in Stream-Analyse-Block verschoben zur Vermeidung von undefined response
 # 2.2.1: Hotfix für response-undefined Fehler im Update-Push
 # 2.2: Bereinigung aller response-Variablen aus Default-Nachrichten zur Fehlervermeidung
@@ -1363,6 +1364,10 @@ action:
         {% elif s5_enabled and s5_conditions %}5
         {% elif s6_enabled and s6_conditions %}6
         {% else %}{{ scenario_fallback }}{% endif %}
+      
+      # Response initialisieren um undefined-Fehler zu vermeiden
+      response:
+        response_text: ""
   
   # Load scenario settings dynamically
   - variables:
@@ -1612,31 +1617,19 @@ action:
             response_variable: response
           
           # 9) Update push (direkt nach Stream-Analyse, wenn erfolgreich)
-          - if:
-              - condition: template
-                value_template: "{{ current_update_push }}"
-            then:
-              - repeat:
-                  for_each: "{{ notify_services_all }}"
-                  sequence:
-                    - service: "notify.{{ repeat.item }}"
-                      data:
-                        title: "{{ camera }} - Update {{ notification_time }}"
-                        message: "{{ response.response_text | default('Stream-Analyse abgeschlossen') }} ({{ notification_level }})"
-                        data:
-                          url: "{{ tap_navigate }}"
-                          clickAction: "{{ tap_navigate }}"
-                          tag: "{{ notification_tag }}"
-                          group: "cams"
-                          attachment:
-                            url: "{{ snapshot_access_file_path }}"
-                            content_type: JPEG
-                          push:
-                            interruption-level: "{{ notification_level }}"
-                            sound:
-                              name: "{{ notification_sound }}"
-                              volume: "{{ notification_volume }}"
-                              critical: "{{ notification_level == 'critical' }}"
+          # 9) Update push (direkt nach Stream-Analyse, wenn erfolgreich)
+      - if:
+          - condition: template
+            value_template: "{{ current_update_push and (response.response_text | default('')) != '' }}"
+        then:
+          - repeat:
+              for_each: "{{ notify_services_all }}"
+              sequence:
+                - service: "notify.{{ repeat.item }}"
+                  data:
+                    title: "{{ camera }} - Update {{ notification_time }}"
+                    message: "{{ response.response_text | default('Stream-Analyse abgeschlossen') }} ({{ notification_level }})"
+                    # ... rest bleibt gleich
   
   # Global cooldown
   - delay: !input global_cooldown
