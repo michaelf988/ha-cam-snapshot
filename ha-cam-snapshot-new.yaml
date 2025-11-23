@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.2.1"
+  name: "Camera Event Notification 2.2.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -9,16 +9,19 @@ blueprint:
     AI-Analysen und mehr. Jedes Szenario kann individuell konfiguriert werden
     basierend auf Anwesenheit, Alarmanlage-Status oder manuellen Triggern.
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
-    
-    Changelog:
-    * 2.2.1: Hotfix für response-undefined Fehler im Update-Push
-    * 2.2: Bereinigung aller response-Variablen aus Default-Nachrichten zur Fehlervermeidung
-    * 2.1: LG TV Integration, Helper-basierte Szenario-Steuerung, Icons entfernt, Tap-Action hinzugefügt
-    * 2.0: Kompletter Umbau auf 6 Szenarien mit individuellen Einstellungen
-    * 1.8.2: Entfernung von Debug-Modus, Remember-Funktion und iOS Camera Stream
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
+
+# =======================
+# CHANGELOG
+# =======================
+# 2.2.2: Update-Push in Stream-Analyse-Block verschoben zur Vermeidung von undefined response
+# 2.2.1: Hotfix für response-undefined Fehler im Update-Push
+# 2.2: Bereinigung aller response-Variablen aus Default-Nachrichten zur Fehlervermeidung
+# 2.1: LG TV Integration, Helper-basierte Szenario-Steuerung, Icons entfernt, Tap-Action hinzugefügt
+# 2.0: Kompletter Umbau auf 6 Szenarien mit individuellen Einstellungen
+# 1.8.2: Entfernung von Debug-Modus, Remember-Funktion und iOS Camera Stream
 
   input:
     # =======================
@@ -1588,7 +1591,7 @@ action:
                                 volume: "{{ notification_volume }}"
                                 critical: true
       
-      # 8) Stream analysis
+# 8) Stream analysis
       - if:
           - condition: template
             value_template: "{{ current_stream_analyze and camera_entity_snapshot != '' }}"
@@ -1607,33 +1610,33 @@ action:
               target_width: !input target_width
               max_tokens: !input max_tokens
             response_variable: response
-      
-      # 9) Update push (nur wenn response definiert ist)
-      - if:
-          - condition: template
-            value_template: "{{ current_update_push and response is defined and response.response_text is defined }}"
-        then:
-          - repeat:
-              for_each: "{{ notify_services_all }}"
-              sequence:
-                - service: "notify.{{ repeat.item }}"
-                  data:
-                    title: "{{ camera }} - Update {{ notification_time }}"
-                    message: "{{ response.response_text if (response is defined and response.response_text is defined) else 'Stream-Analyse abgeschlossen' }} ({{ notification_level }})"
-                    data:
-                      url: "{{ tap_navigate }}"
-                      clickAction: "{{ tap_navigate }}"
-                      tag: "{{ notification_tag }}"
-                      group: "cams"
-                      attachment:
-                        url: "{{ snapshot_access_file_path }}"
-                        content_type: JPEG
-                      push:
-                        interruption-level: "{{ notification_level }}"
-                        sound:
-                          name: "{{ notification_sound }}"
-                          volume: "{{ notification_volume }}"
-                          critical: "{{ notification_level == 'critical' }}"
+          
+          # 9) Update push (direkt nach Stream-Analyse, wenn erfolgreich)
+          - if:
+              - condition: template
+                value_template: "{{ current_update_push }}"
+            then:
+              - repeat:
+                  for_each: "{{ notify_services_all }}"
+                  sequence:
+                    - service: "notify.{{ repeat.item }}"
+                      data:
+                        title: "{{ camera }} - Update {{ notification_time }}"
+                        message: "{{ response.response_text | default('Stream-Analyse abgeschlossen') }} ({{ notification_level }})"
+                        data:
+                          url: "{{ tap_navigate }}"
+                          clickAction: "{{ tap_navigate }}"
+                          tag: "{{ notification_tag }}"
+                          group: "cams"
+                          attachment:
+                            url: "{{ snapshot_access_file_path }}"
+                            content_type: JPEG
+                          push:
+                            interruption-level: "{{ notification_level }}"
+                            sound:
+                              name: "{{ notification_sound }}"
+                              volume: "{{ notification_volume }}"
+                              critical: "{{ notification_level == 'critical' }}"
   
   # Global cooldown
   - delay: !input global_cooldown
