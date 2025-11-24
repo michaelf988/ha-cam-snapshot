@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.2.3"
+  name: "Camera Event Notification 2.3.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,13 +16,17 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 2.3.0: Kompletter Umbau der Szenario-Logik - Bedingungen werden jetzt korrekt evaluiert
+#        - Entfernung der s*_enabled Felder (Szenarien immer aktiv)
+#        - choose-based Szenario-Auswahl statt fehlerhafter Template-Logik
+#        - Actions-Button Fix mit Addition statt append()
+#        - remember: true bei llmvision entfernt
 # 2.2.3: Response-Variable initialisiert + alle Verwendungen mit default() abgesichert
 # 2.2.2: Update-Push in Stream-Analyse-Block verschoben zur Vermeidung von undefined response
 # 2.2.1: Hotfix für response-undefined Fehler im Update-Push
 # 2.2: Bereinigung aller response-Variablen aus Default-Nachrichten zur Fehlervermeidung
 # 2.1: LG TV Integration, Helper-basierte Szenario-Steuerung, Icons entfernt, Tap-Action hinzugefügt
 # 2.0: Kompletter Umbau auf 6 Szenarien mit individuellen Einstellungen
-# 1.8.2: Entfernung von Debug-Modus, Remember-Funktion und iOS Camera Stream
 
   input:
     # =======================
@@ -468,12 +472,6 @@ blueprint:
       icon: mdi:shield-home
       collapsed: true
       input:
-        s1_enabled:
-          name: "Szenario aktiviert"
-          default: true
-          selector:
-            boolean:
-
         s1_conditions:
           name: "Aktivierungsbedingungen"
           description: "Alle müssen erfüllt sein"
@@ -576,12 +574,6 @@ blueprint:
       icon: mdi:weather-night
       collapsed: true
       input:
-        s2_enabled:
-          name: "Szenario aktiviert"
-          default: true
-          selector:
-            boolean:
-
         s2_conditions:
           name: "Aktivierungsbedingungen"
           default: []
@@ -683,12 +675,6 @@ blueprint:
       icon: mdi:weather-sunny
       collapsed: true
       input:
-        s3_enabled:
-          name: "Szenario aktiviert"
-          default: true
-          selector:
-            boolean:
-
         s3_conditions:
           name: "Aktivierungsbedingungen"
           default: []
@@ -790,12 +776,6 @@ blueprint:
       icon: mdi:shield-lock
       collapsed: true
       input:
-        s4_enabled:
-          name: "Szenario aktiviert"
-          default: true
-          selector:
-            boolean:
-
         s4_conditions:
           name: "Aktivierungsbedingungen"
           default: []
@@ -903,12 +883,6 @@ blueprint:
       icon: mdi:home-outline
       collapsed: true
       input:
-        s5_enabled:
-          name: "Szenario aktiviert"
-          default: true
-          selector:
-            boolean:
-
         s5_conditions:
           name: "Aktivierungsbedingungen"
           default: []
@@ -1010,12 +984,6 @@ blueprint:
       icon: mdi:hand-pointing-right
       collapsed: true
       input:
-        s6_enabled:
-          name: "Szenario aktiviert"
-          default: true
-          selector:
-            boolean:
-
         s6_conditions:
           name: "Zusätzliche Aktivierungsbedingungen"
           description: "Optional - wird auch durch Helper aktiviert"
@@ -1197,8 +1165,7 @@ variables:
   scenario_helper: !input scenario_helper
   scenario_fallback: !input scenario_fallback
   
-  # All scenario settings
-  s1_enabled: !input s1_enabled
+  # All scenario settings (ohne s*_enabled!)
   s1_conditions: !input s1_conditions
   s1_snapshot: !input s1_snapshot
   s1_importance_check: !input s1_importance_check
@@ -1213,7 +1180,6 @@ variables:
   s1_stream_analyze: !input s1_stream_analyze
   s1_update_push: !input s1_update_push
   
-  s2_enabled: !input s2_enabled
   s2_conditions: !input s2_conditions
   s2_snapshot: !input s2_snapshot
   s2_importance_check: !input s2_importance_check
@@ -1228,7 +1194,6 @@ variables:
   s2_stream_analyze: !input s2_stream_analyze
   s2_update_push: !input s2_update_push
   
-  s3_enabled: !input s3_enabled
   s3_conditions: !input s3_conditions
   s3_snapshot: !input s3_snapshot
   s3_importance_check: !input s3_importance_check
@@ -1243,7 +1208,6 @@ variables:
   s3_stream_analyze: !input s3_stream_analyze
   s3_update_push: !input s3_update_push
   
-  s4_enabled: !input s4_enabled
   s4_conditions: !input s4_conditions
   s4_snapshot: !input s4_snapshot
   s4_importance_check: !input s4_importance_check
@@ -1259,7 +1223,6 @@ variables:
   s4_stream_analyze: !input s4_stream_analyze
   s4_update_push: !input s4_update_push
   
-  s5_enabled: !input s5_enabled
   s5_conditions: !input s5_conditions
   s5_snapshot: !input s5_snapshot
   s5_importance_check: !input s5_importance_check
@@ -1274,7 +1237,6 @@ variables:
   s5_stream_analyze: !input s5_stream_analyze
   s5_update_push: !input s5_update_push
   
-  s6_enabled: !input s6_enabled
   s6_conditions: !input s6_conditions
   s6_snapshot: !input s6_snapshot
   s6_importance_check: !input s6_importance_check
@@ -1356,25 +1318,58 @@ trigger:
 
 # ================= Actions =================
 action:
-  # Step 0: Determine active scenario (Helper hat Priorität)
-  - variables:
-      active_scenario: >
-        {% if scenario_helper and is_state(scenario_helper, 'on') %}
-          6
-        {% elif s1_enabled and s1_conditions %}1
-        {% elif s2_enabled and s2_conditions %}2
-        {% elif s3_enabled and s3_conditions %}3
-        {% elif s4_enabled and s4_conditions %}4
-        {% elif s5_enabled and s5_conditions %}5
-        {% elif s6_enabled and s6_conditions %}6
-        {% else %}{{ scenario_fallback }}{% endif %}
+  # Step 0: Szenario-Bestimmung mit choose - KORREKTE EVALUIERUNG!
+  - choose:
+      # Helper aktiv -> immer Szenario 6
+      - conditions:
+          - condition: template
+            value_template: "{{ scenario_helper and is_state(scenario_helper, 'on') }}"
+        sequence:
+          - variables:
+              active_scenario: "6"
       
-      # Response initialisieren um undefined-Fehler zu vermeiden
-      response:
-        response_text: ""
+      # Szenario 1 Bedingungen
+      - conditions: !input s1_conditions
+        sequence:
+          - variables:
+              active_scenario: "1"
+      
+      # Szenario 2 Bedingungen  
+      - conditions: !input s2_conditions
+        sequence:
+          - variables:
+              active_scenario: "2"
+      
+      # Szenario 3 Bedingungen
+      - conditions: !input s3_conditions
+        sequence:
+          - variables:
+              active_scenario: "3"
+      
+      # Szenario 4 Bedingungen
+      - conditions: !input s4_conditions
+        sequence:
+          - variables:
+              active_scenario: "4"
+      
+      # Szenario 5 Bedingungen
+      - conditions: !input s5_conditions
+        sequence:
+          - variables:
+              active_scenario: "5"
+      
+      # Szenario 6 Bedingungen (nur wenn nicht durch Helper)
+      - conditions: !input s6_conditions
+        sequence:
+          - variables:
+              active_scenario: "6"
+    
+    # Default: Fallback Szenario
+    default:
+      - variables:
+          active_scenario: !input scenario_fallback
   
-  # Load scenario settings dynamically - ALLE mit default() absichern!
-  # Load scenario settings dynamically - OHNE attribute() Funktion!
+  # Load scenario settings dynamically
   - variables:
       current_snapshot: >
         {% if active_scenario == '1' %}{{ s1_snapshot }}
@@ -1521,7 +1516,6 @@ action:
               include_filename: true
               target_width: !input target_width
               max_tokens: !input max_tokens
-              remember: true
             response_variable: importance
       
       # 2b) Normalize and apply force level
