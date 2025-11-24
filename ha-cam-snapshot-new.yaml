@@ -1521,6 +1521,7 @@ action:
               include_filename: true
               target_width: !input target_width
               max_tokens: !input max_tokens
+              remember: true
             response_variable: importance
       
       # 2b) Normalize and apply force level
@@ -1608,7 +1609,7 @@ action:
           - service: notify.lg_webos_smart_tv
             data:
               title: "{{ lg_tv_message_title }}"
-              message: "{{ lg_tv_message_text }}"
+              message: "{{ camera }} - {{ lg_tv_message_text }}"
       
       # 5b) Other TV/Notify services
       - if:
