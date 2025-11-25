@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.3.1"
+  name: "Camera Event Notification 2.4.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,6 +16,7 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 2.4.0: Action-Buttons erweitert - URIs und Icons (SF Symbols) für alle drei Buttons
 # 2.3.1: Fix für Alarm-Wiederholungen - korrekte Schleifenstruktur, Delay-Timing repariert
 # 2.3.0: Kompletter Umbau der Szenario-Logik - Bedingungen werden jetzt korrekt evaluiert
 #        - Entfernung der s*_enabled Felder (Szenarien immer aktiv)
@@ -310,7 +311,7 @@ blueprint:
           selector:
             duration: {}
 
-        # Action Buttons (ohne Icons)
+        # Action Buttons
         action1_enabled:
           name: "Button 1 aktivieren"
           default: true
@@ -319,6 +320,18 @@ blueprint:
         action1_title:
           name: "Button 1 Text"
           default: "Öffnen"
+          selector:
+            text:
+        action1_uri:
+          name: "Button 1 URI (optional)"
+          description: "Überschreibt die Standard-Navigation"
+          default: ""
+          selector:
+            text:
+        action1_icon:
+          name: "Button 1 Icon (optional)"
+          description: "iOS SF Symbol, z.B. sfsymbols:bell"
+          default: ""
           selector:
             text:
         action1_destructive:
@@ -337,6 +350,18 @@ blueprint:
           default: "Snooze 15min"
           selector:
             text:
+        action2_uri:
+          name: "Button 2 URI (optional)"
+          description: "Überschreibt die Standard-Navigation"
+          default: ""
+          selector:
+            text:
+        action2_icon:
+          name: "Button 2 Icon (optional)"
+          description: "iOS SF Symbol, z.B. sfsymbols:moon.zzz"
+          default: ""
+          selector:
+            text:
         action2_destructive:
           name: "Button 2 Rot markieren"
           default: false
@@ -351,6 +376,18 @@ blueprint:
         action3_title:
           name: "Button 3 Text"
           default: "Alarm aus"
+          selector:
+            text:
+        action3_uri:
+          name: "Button 3 URI (optional)"
+          description: "Überschreibt die Standard-Navigation"
+          default: ""
+          selector:
+            text:
+        action3_icon:
+          name: "Button 3 Icon (optional)"
+          description: "iOS SF Symbol, z.B. sfsymbols:bell.slash"
+          default: ""
           selector:
             text:
         action3_destructive:
@@ -1149,17 +1186,23 @@ variables:
   other_notify_title: !input other_notify_title
   other_notify_text: !input other_notify_text
   
-  # Action buttons (ohne Icons)
+  # Action buttons
   action1_enabled: !input action1_enabled
   action1_title: !input action1_title
+  action1_uri: !input action1_uri
+  action1_icon: !input action1_icon
   action1_destructive: !input action1_destructive
   
   action2_enabled: !input action2_enabled
   action2_title: !input action2_title
+  action2_uri: !input action2_uri
+  action2_icon: !input action2_icon
   action2_destructive: !input action2_destructive
   
   action3_enabled: !input action3_enabled
   action3_title: !input action3_title
+  action3_uri: !input action3_uri
+  action3_icon: !input action3_icon
   action3_destructive: !input action3_destructive
   
   # Scenario control
@@ -1577,13 +1620,34 @@ action:
                       actions: >
                         {% set actions = [] %}
                         {% if action1_enabled %}
-                          {% set actions = actions + [{'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive}] %}
+                          {% set action1_dict = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
+                          {% if action1_uri %}
+                            {% set action1_dict = action1_dict | combine({'uri': action1_uri}) %}
+                          {% endif %}
+                          {% if action1_icon %}
+                            {% set action1_dict = action1_dict | combine({'icon': action1_icon}) %}
+                          {% endif %}
+                          {% set actions = actions + [action1_dict] %}
                         {% endif %}
                         {% if action2_enabled %}
-                          {% set actions = actions + [{'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive}] %}
+                          {% set action2_dict = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
+                          {% if action2_uri %}
+                            {% set action2_dict = action2_dict | combine({'uri': action2_uri}) %}
+                          {% endif %}
+                          {% if action2_icon %}
+                            {% set action2_dict = action2_dict | combine({'icon': action2_icon}) %}
+                          {% endif %}
+                          {% set actions = actions + [action2_dict] %}
                         {% endif %}
                         {% if action3_enabled %}
-                          {% set actions = actions + [{'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive}] %}
+                          {% set action3_dict = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
+                          {% if action3_uri %}
+                            {% set action3_dict = action3_dict | combine({'uri': action3_uri}) %}
+                          {% endif %}
+                          {% if action3_icon %}
+                            {% set action3_dict = action3_dict | combine({'icon': action3_icon}) %}
+                          {% endif %}
+                          {% set actions = actions + [action3_dict] %}
                         {% endif %}
                         {{ actions }}
                       push:
