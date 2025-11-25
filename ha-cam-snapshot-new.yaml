@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 2.3.0"
+  name: "Camera Event Notification 2.3.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,6 +16,7 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 2.3.1: Fix für Alarm-Wiederholungen - korrekte Schleifenstruktur, Delay-Timing repariert
 # 2.3.0: Kompletter Umbau der Szenario-Logik - Bedingungen werden jetzt korrekt evaluiert
 #        - Entfernung der s*_enabled Felder (Szenarien immer aktiv)
 #        - choose-based Szenario-Auswahl statt fehlerhafter Template-Logik
@@ -1649,7 +1650,7 @@ action:
                           media_player_entity_id: "{{ repeat.item }}"
                           message: "{{ tts_message }}"
       
-      # 7) Alarm repetitions
+      # 7) Alarm repetitions (korrigierte Logik)
       - if:
           - condition: template
             value_template: "{{ current_alarm_mode }}"
@@ -1657,20 +1658,31 @@ action:
             conditions: "{{ current_alarm_conditions if active_scenario == '4' else [] }}"
         then:
           - repeat:
-              for_each: "{{ notify_services_all }}"
+              count: "{{ alarm_repetition_count }}"
               sequence:
+                # Verzögerung nur zwischen Wiederholungen (nicht vor der ersten)
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input alarm_repetition_delay
+                
+                # Sende an alle Geräte
+                - variables:
+                    alarm_index: "{{ repeat.index }}"
+                    alarm_total: "{{ alarm_repetition_count }}"
+                
                 - repeat:
-                    count: "{{ alarm_repetition_count }}"
+                    for_each: "{{ notify_services_all }}"
                     sequence:
-                      - delay: !input alarm_repetition_delay
                       - service: "notify.{{ repeat.item }}"
                         data:
                           title: "{{ camera }} - ALARM {{ notification_time }}"
-                          message: "Szenario {{ active_scenario }}: {{ notification_level }}"
+                          message: "Szenario {{ active_scenario }}: {{ notification_level }} ({{ alarm_index }}/{{ alarm_total }})"
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
-                            tag: "{{ notification_tag ~ '_alarm_' ~ repeat.index }}"
+                            tag: "{{ notification_tag }}_alarm"
                             group: "cams"
                             attachment:
                               url: "{{ snapshot_access_file_path }}"
