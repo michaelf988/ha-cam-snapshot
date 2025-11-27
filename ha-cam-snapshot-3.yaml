@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.0.0"
+  name: "Camera Event Notification 3.0.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -10,11 +10,12 @@ blueprint:
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-3.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
 
 # =======================
 # CHANGELOG
 # =======================
+# 3.0.1: Hotfix - Action-Buttons zum Update-Push hinzugefügt
 # 3.0.0: Kompletter Umbau des Detection-Systems
 #        - 3-stufige Wichtigkeitsanalyse (no/probably/definitely-person)
 #        - Stream-Verifikation überschreibt initiale Analyse
@@ -2088,6 +2089,39 @@ action:
                       attachment:
                         url: "{{ snapshot_access_file_path }}"
                         content_type: JPEG
+                      actions: >
+                        {% set actions = [] %}
+                        {% if action1_enabled %}
+                          {% set action1_dict = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
+                          {% if action1_uri %}
+                            {% set action1_dict = action1_dict | combine({'uri': action1_uri}) %}
+                          {% endif %}
+                          {% if action1_icon %}
+                            {% set action1_dict = action1_dict | combine({'icon': action1_icon}) %}
+                          {% endif %}
+                          {% set actions = actions + [action1_dict] %}
+                        {% endif %}
+                        {% if action2_enabled %}
+                          {% set action2_dict = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
+                          {% if action2_uri %}
+                            {% set action2_dict = action2_dict | combine({'uri': action2_uri}) %}
+                          {% endif %}
+                          {% if action2_icon %}
+                            {% set action2_dict = action2_dict | combine({'icon': action2_icon}) %}
+                          {% endif %}
+                          {% set actions = actions + [action2_dict] %}
+                        {% endif %}
+                        {% if action3_enabled %}
+                          {% set action3_dict = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
+                          {% if action3_uri %}
+                            {% set action3_dict = action3_dict | combine({'uri': action3_uri}) %}
+                          {% endif %}
+                          {% if action3_icon %}
+                            {% set action3_dict = action3_dict | combine({'icon': action3_icon}) %}
+                          {% endif %}
+                          {% set actions = actions + [action3_dict] %}
+                        {% endif %}
+                        {{ actions }}
                       push:
                         interruption-level: "{{ final_interruption_level }}"
                         sound:
