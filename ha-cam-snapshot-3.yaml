@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.1.0"
+  name: "Camera Event Notification 3.2.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,12 +16,16 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
-# 3.1.0: Stream-Analyse Retry bei "Unklar"
-#        - Neue Inputs: stream_max_retries, stream_retry_delay
-#        - Automatischer Retry wenn Ergebnis "Unklar"
-#        - Verstärkter Prompt bei Retries (ermutigt zur Entscheidung)
-#        - stream_attempts_used Variable für Debugging
-#        - Fix für Variablen-Scope zwischen if-Blöcken
+# 3.1.0: Umfangreiches Update für Retry-Logik und Benachrichtigungstexte
+#        - Stream-Analyse: Retry bei "Unklar" mit konfigurierbaren Parametern
+#        - Importance-Analyse: Retry bei ungültiger AI-Antwort
+#        - Neue Inputs: stream_max_retries, stream_retry_delay, 
+#          importance_max_retries, importance_retry_delay
+#        - Status-Tracking: importance_status, stream_status
+#        - Deutsche Benachrichtigungstexte mit Debug-Infos
+#        - Edge-Case Handling: no_response, invalid_response, still_unclear
+#        - Bei AI-Fehlern: Fallback auf "probably-person" (Option B)
+#        - Verstärkte Prompts bei Retry-Versuchen
 # 3.0.1: Hotfix - Action-Buttons zum Update-Push hinzugefügt
 # 3.0.0: Kompletter Umbau des Detection-Systems
 #        - 3-stufige Wichtigkeitsanalyse (no/probably/definitely-person)
@@ -175,6 +179,22 @@ blueprint:
           name: "Stream-Analyse: Pause zwischen Versuchen"
           description: "Wartezeit vor erneutem Versuch"
           default: { seconds: 2 }
+          selector:
+            duration: {}
+
+        importance_max_retries:
+          name: "Importance-Analyse: Max Versuche"
+          description: "Wie oft bei ungültiger Antwort wiederholt werden soll (1 = kein Retry)"
+          default: 2
+          selector:
+            number:
+              min: 1
+              max: 5
+
+        importance_retry_delay:
+          name: "Importance-Analyse: Pause zwischen Versuchen"
+          description: "Wartezeit vor erneutem Versuch"
+          default: { seconds: 1 }
           selector:
             duration: {}
 
@@ -1381,6 +1401,8 @@ variables:
   max_tokens: !input max_tokens
   stream_max_retries: !input stream_max_retries
   stream_retry_delay: !input stream_retry_delay
+  importance_max_retries: !input importance_max_retries
+  importance_retry_delay: !input importance_retry_delay
   importance_prompt: !input importance_prompt
   stream_prompt: !input stream_prompt
   
@@ -1808,40 +1830,97 @@ action:
             data:
               filename: "{{ file_path }}"
       
-      # 2) Importance analysis (if enabled)
+      # 2) Importance analysis mit Retry-Schleife
+      - variables:
+          importance_status: "{% if current_importance %}pending{% else %}disabled{% endif %}"
+          importance_attempts_used: 0
+          _importance_result_temp: ""
+      
       - if:
           - condition: template
             value_template: "{{ current_importance }}"
         then:
-          - action: llmvision.image_analyzer
-            metadata: {}
-            data:
-              image_file: "{{ file_path }}"
-              provider: !input provider
-              model: !input model
-              message: "{{ importance_prompt }}"
-              include_filename: true
-              target_width: !input target_width
-              max_tokens: !input max_tokens
-              remember: true
-            response_variable: importance
+          # Retry-Schleife für Importance-Analyse
+          - repeat:
+              while:
+                - condition: template
+                  value_template: >
+                    {% set valid_responses = ['no-person', 'probably-person', 'definitely-person'] %}
+                    {% set response_lower = _importance_result_temp | lower %}
+                    {% set is_valid = valid_responses | select('in', response_lower) | list | length > 0 %}
+                    {{ not is_valid and repeat.index <= importance_max_retries }}
+              sequence:
+                # Verzögerung nur bei Retry
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input importance_retry_delay
+                
+                - action: llmvision.image_analyzer
+                  metadata: {}
+                  data:
+                    image_file: "{{ file_path }}"
+                    provider: !input provider
+                    model: !input model
+                    message: >
+                      {% if repeat.index > 1 %}
+                      IMPORTANT: You MUST respond with EXACTLY one of these three labels:
+                      - "no-person"
+                      - "probably-person"
+                      - "definitely-person"
+                      
+                      Do not add any other text, explanation, or punctuation. Just the label.
+                      
+                      {% endif %}
+                      {{ importance_prompt }}
+                    include_filename: true
+                    target_width: !input target_width
+                    max_tokens: !input max_tokens
+                    remember: true
+                  response_variable: _importance_response
+                
+                - variables:
+                    _importance_result_temp: "{{ _importance_response.response_text | default('') }}"
+                    importance_attempts_used: "{{ repeat.index }}"
+          
+          # Nach Schleife: Status und detection_level bestimmen
+          - variables:
+              importance_status: >
+                {% if _importance_result_temp == '' %}
+                  no_response
+                {% elif 'definitely-person' in (_importance_result_temp | lower) %}
+                  success
+                {% elif 'probably-person' in (_importance_result_temp | lower) %}
+                  success
+                {% elif 'no-person' in (_importance_result_temp | lower) %}
+                  success
+                {% else %}
+                  invalid_response
+                {% endif %}
       
       # 2b) Normalize detection level und initiale Level-Zuweisung
       - variables:
           detection_level: >
-            {% if importance is defined and importance.response_text %}
-              {% set t = importance.response_text | lower %}
-              {% if 'definitely-person' in t or 'definitely person' in t %}definitely-person
-              {% elif 'probably-person' in t or 'probably person' in t %}probably-person
-              {% elif 'no-person' in t or 'no person' in t %}no-person
-              {% else %}no-person{% endif %}
-            {% else %}no-person{% endif %}
+            {% if importance_status == 'disabled' %}
+              none
+            {% elif importance_status == 'no_response' or importance_status == 'invalid_response' %}
+              probably-person
+            {% else %}
+              {% set t = _importance_result_temp | lower %}
+              {% if 'definitely-person' in t %}definitely-person
+              {% elif 'probably-person' in t %}probably-person
+              {% elif 'no-person' in t %}no-person
+              {% else %}probably-person{% endif %}
+            {% endif %}
           
           initial_interruption_level: >
             {% if detection_level == 'definitely-person' %}
               {{ current_level_definitely_person }}
             {% elif detection_level == 'probably-person' %}
               {{ current_level_probably_person }}
+            {% elif detection_level == 'none' %}
+              {{ current_level_no_person }}
             {% else %}
               {{ current_level_no_person }}
             {% endif %}
@@ -1867,7 +1946,22 @@ action:
                 - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
-                    message: "Szenario {{ active_scenario }}: {{ detection_level }} ({{ initial_interruption_level }})"
+                    message: >
+                      {% if importance_status == 'disabled' %}
+                      Bewegung erkannt
+                      {% elif importance_status == 'no_response' %}
+                      Bewegung erkannt - Analyse konnte nicht durchgeführt werden
+                      {% elif importance_status == 'invalid_response' %}
+                      Bewegung erkannt - Analyse konnte nicht korrekt durchgeführt werden
+                      {% elif detection_level == 'definitely-person' %}
+                      Person erkannt
+                      {% elif detection_level == 'probably-person' %}
+                      Möglicherweise Person erkannt
+                      {% else %}
+                      Bewegung erkannt - keine Person
+                      {% endif %}
+                      
+                      (S{{ active_scenario }} | {{ detection_level }} | {{ initial_interruption_level }}{% if importance_attempts_used > 0 %} | {{ importance_attempts_used }} Versuche{% endif %})
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -1927,6 +2021,7 @@ action:
             {% else %}false{% endif %}
           
           # Initialisiere mit Defaults (werden überschrieben wenn Stream läuft)
+          stream_status: "{% if stream_should_run %}pending{% else %}disabled{% endif %}"
           stream_result: ""
           stream_attempts_used: 0
           verified_detection: "{{ detection_level }}"
@@ -1978,11 +2073,19 @@ action:
                   response_variable: _response
                 
                 - variables:
-                    _stream_result_temp: "{{ _response.response_text | default('Unklar') }}"
+                    _stream_result_temp: "{{ _response.response_text | default('') }}"
                     stream_attempts_used: "{{ repeat.index }}"
           
-          # Nach der Schleife: Finale Werte auf Top-Level setzen
+          # Nach der Schleife: Status und finale Werte setzen
           - variables:
+              stream_status: >
+                {% if _stream_result_temp == '' %}
+                  no_response
+                {% elif _stream_result_temp == 'Unklar' %}
+                  still_unclear
+                {% else %}
+                  success
+                {% endif %}
               stream_result: "{{ _stream_result_temp }}"
               verified_detection: >
                 {% if _stream_result_temp in ['Person erkannt', 'Mehrere Personen', 'Person und Fahrzeug'] %}
@@ -2124,7 +2227,7 @@ action:
       # 9) Update push (MIT VERIFIED LEVEL, STREAM-RESULT UND RETRY-INFO)
       - if:
           - condition: template
-            value_template: "{{ current_update_push and stream_result != '' }}"
+            value_template: "{{ current_update_push and stream_status != 'disabled' }}"
         then:
           - repeat:
               for_each: "{{ notify_services_all }}"
@@ -2133,11 +2236,17 @@ action:
                   data:
                     title: "{{ camera }} - Update {{ notification_time }}"
                     message: >
-                      {% if verified_detection != detection_level %}
-                        VERIFIZIERT: {{ stream_result }} ({{ final_interruption_level }}){% if stream_attempts_used > 1 %} [{{ stream_attempts_used }} Versuche]{% endif %}
+                      {% if stream_status == 'no_response' %}
+                      Stream-Analyse konnte nicht durchgeführt werden
+                      {% elif stream_status == 'still_unclear' %}
+                      Stream-Analyse blieb unklar
+                      {% elif verified_detection != detection_level %}
+                      VERIFIZIERT: {{ stream_result }}
                       {% else %}
-                        Analyse: {{ stream_result }} ({{ final_interruption_level }}){% if stream_attempts_used > 1 %} [{{ stream_attempts_used }} Versuche]{% endif %}
+                      {{ stream_result }}
                       {% endif %}
+                      
+                      (S{{ active_scenario }} | {{ detection_level }} → {{ verified_detection }} | {{ final_interruption_level }} | {{ stream_attempts_used }} Versuche)
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
