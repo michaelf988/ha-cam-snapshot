@@ -1,12 +1,13 @@
 blueprint:
-  name: "Camera Event Notification 3.0.1"
+  name: "Camera Event Notification 3.1.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
-    Features: 3-stufige Wichtigkeitsanalyse, Stream-Verifikation, dynamische Level-Anpassung,
-    6 individuell konfigurierbare Szenarien, LG WebOS TV Support, TTS-Ansagen bei kritischen Events.
+    Features: 3-stufige Wichtigkeitsanalyse, Stream-Verifikation mit Retry bei "Unklar",
+    dynamische Level-Anpassung, 6 individuell konfigurierbare Szenarien, 
+    LG WebOS TV Support, TTS-Ansagen bei kritischen Events.
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
 
   domain: automation
@@ -15,6 +16,12 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.1.0: Stream-Analyse Retry bei "Unklar"
+#        - Neue Inputs: stream_max_retries, stream_retry_delay
+#        - Automatischer Retry wenn Ergebnis "Unklar"
+#        - Erweiterter Prompt bei Retry-Versuchen
+#        - stream_attempts_used Variable für Debugging
+#        - Fix für Variablen-Scope zwischen if-Blöcken
 # 3.0.1: Hotfix - Action-Buttons zum Update-Push hinzugefügt
 # 3.0.0: Kompletter Umbau des Detection-Systems
 #        - 3-stufige Wichtigkeitsanalyse (no/probably/definitely-person)
@@ -154,6 +161,22 @@ blueprint:
             number:
               min: 1
               max: 1000
+
+        stream_max_retries:
+          name: "Stream-Analyse: Max Versuche"
+          description: "Wie oft bei 'Unklar' wiederholt werden soll (1 = kein Retry)"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        stream_retry_delay:
+          name: "Stream-Analyse: Pause zwischen Versuchen"
+          description: "Wartezeit vor erneutem Versuch"
+          default: { seconds: 2 }
+          selector:
+            duration: {}
 
         importance_prompt:
           name: "Wichtigkeits-Analyse Prompt"
@@ -532,7 +555,9 @@ blueprint:
                 - label: "Szenario 5"
                   value: "5"
                 - label: "Szenario 6"
-                  value: "6"    # =======================
+                  value: "6"
+
+    # =======================
     # SZENARIO 1
     # =======================
     scenario_1_section:
@@ -921,7 +946,9 @@ blueprint:
           name: "Update-Push nach Stream-Analyse"
           default: false
           selector:
-            boolean:    # =======================
+            boolean:
+
+    # =======================
     # SZENARIO 4
     # =======================
     scenario_4_section:
@@ -1333,6 +1360,7 @@ blueprint:
           default: { seconds: 20 }
           selector:
             duration: {}
+
 # ================= Variables =================
 variables:
   # Response sofort initialisieren
@@ -1351,6 +1379,8 @@ variables:
   max_frames: !input max_frames
   duration: !input duration
   max_tokens: !input max_tokens
+  stream_max_retries: !input stream_max_retries
+  stream_retry_delay: !input stream_retry_delay
   importance_prompt: !input importance_prompt
   stream_prompt: !input stream_prompt
   
@@ -1411,7 +1441,7 @@ variables:
   scenario_helper: !input scenario_helper
   scenario_fallback: !input scenario_fallback
   
-  # All scenario settings (NEUE LEVEL-STRUKTUR)
+  # All scenario settings
   s1_conditions: !input s1_conditions
   s1_snapshot: !input s1_snapshot
   s1_importance_check: !input s1_importance_check
@@ -1574,9 +1604,10 @@ trigger:
     entity_id: !input motion_sensors
     to: "on"
     id: "motion_sensor_trigger"
+
 # ================= Actions =================
 action:
-  # Step 0: Szenario-Bestimmung mit choose - KORREKTE EVALUIERUNG!
+  # Step 0: Szenario-Bestimmung mit choose
   - choose:
       # Helper aktiv -> immer Szenario 6
       - conditions:
@@ -1627,7 +1658,7 @@ action:
       - variables:
           active_scenario: !input scenario_fallback
   
-  # Load scenario settings dynamically - NEUE LEVEL-STRUKTUR
+  # Load scenario settings dynamically
   - variables:
       current_snapshot: >
         {% if active_scenario == '1' %}{{ s1_snapshot }}
@@ -1777,7 +1808,7 @@ action:
             data:
               filename: "{{ file_path }}"
       
-      # 2) Importance analysis (if enabled) - MIT NEUER 3-STUFEN ERKENNUNG
+      # 2) Importance analysis (if enabled)
       - if:
           - condition: template
             value_template: "{{ current_importance }}"
@@ -1883,8 +1914,9 @@ action:
                         sound:
                           name: "{{ notification_sound }}"
                           volume: "{{ notification_volume }}"
-                          critical: "{{ initial_interruption_level == 'critical' }}"      
-      # 5) Stream analysis mit Verifikation (NEUE TRIGGER-LOGIK)
+                          critical: "{{ initial_interruption_level == 'critical' }}"
+      
+      # 5) Stream analysis mit Verifikation und RETRY BEI UNKLAR
       - variables:
           stream_should_run: >
             {% if current_stream_min_detection == 'always' %}true
@@ -1893,55 +1925,78 @@ action:
             {% elif current_stream_min_detection == 'probably-person' and detection_rank[detection_level] >= 1 %}true
             {% elif current_stream_min_detection == 'definitely-person' and detection_rank[detection_level] >= 2 %}true
             {% else %}false{% endif %}
+          
+          # Initialisiere mit Defaults (werden überschrieben wenn Stream läuft)
+          stream_result: ""
+          stream_attempts_used: 0
+          verified_detection: "{{ detection_level }}"
+          final_interruption_level: "{{ initial_interruption_level }}"
       
       - if:
           - condition: template
             value_template: "{{ stream_should_run and camera_entity_snapshot != '' }}"
         then:
-          - action: llmvision.stream_analyzer
-            metadata: {}
-            data:
-              image_entity:
-                - "{{ camera_entity_snapshot }}"
-              duration: !input duration
-              provider: !input provider
-              model: !input model
-              message: "{{ stream_prompt }}"
-              include_filename: true
-              max_frames: !input max_frames
-              target_width: !input target_width
-              max_tokens: !input max_tokens
-              remember: true
-            response_variable: response
-          
-          # VERIFIKATION: Stream überschreibt Detection bei Personenerkennung
+          # Temporäre Variable für Schleifensteuerung
           - variables:
-              stream_result: "{{ response.response_text | default('') }}"
+              _stream_result_temp: "Unklar"
+          
+          # Retry-Schleife: Läuft bis max_retries oder bis Ergebnis != "Unklar"
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ _stream_result_temp == 'Unklar' and repeat.index <= stream_max_retries }}"
+              sequence:
+                # Verzögerung nur bei Retry (nicht beim ersten Versuch)
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input stream_retry_delay
+                
+                - action: llmvision.stream_analyzer
+                  metadata: {}
+                  data:
+                    image_entity:
+                      - "{{ camera_entity_snapshot }}"
+                    duration: !input duration
+                    provider: !input provider
+                    model: !input model
+                    message: >
+                      {% if repeat.index > 1 %}
+                      RETRY ATTEMPT {{ repeat.index }}/{{ stream_max_retries }}: Previous analysis was unclear.
+                      Take more time to analyze the movement pattern carefully.
+                      
+                      {% endif %}
+                      {{ stream_prompt }}
+                    include_filename: true
+                    max_frames: !input max_frames
+                    target_width: !input target_width
+                    max_tokens: !input max_tokens
+                    remember: true
+                  response_variable: _response
+                
+                - variables:
+                    _stream_result_temp: "{{ _response.response_text | default('Unklar') }}"
+                    stream_attempts_used: "{{ repeat.index }}"
+          
+          # Nach der Schleife: Finale Werte auf Top-Level setzen
+          - variables:
+              stream_result: "{{ _stream_result_temp }}"
               verified_detection: >
-                {% if stream_result in ['Person erkannt', 'Mehrere Personen', 'Person und Fahrzeug'] %}
+                {% if _stream_result_temp in ['Person erkannt', 'Mehrere Personen', 'Person und Fahrzeug'] %}
                   definitely-person
                 {% else %}
                   {{ detection_level }}
                 {% endif %}
-              
               final_interruption_level: >
-                {% if verified_detection == 'definitely-person' %}
+                {% set _verified = 'definitely-person' if _stream_result_temp in ['Person erkannt', 'Mehrere Personen', 'Person und Fahrzeug'] else detection_level %}
+                {% if _verified == 'definitely-person' %}
                   {{ current_level_definitely_person }}
-                {% elif verified_detection == 'probably-person' %}
+                {% elif _verified == 'probably-person' %}
                   {{ current_level_probably_person }}
                 {% else %}
                   {{ current_level_no_person }}
                 {% endif %}
-      
-      # Wenn keine Stream-Analyse, nutze initiale Werte
-      - if:
-          - condition: template
-            value_template: "{{ not stream_should_run }}"
-        then:
-          - variables:
-              stream_result: ""
-              verified_detection: "{{ detection_level }}"
-              final_interruption_level: "{{ initial_interruption_level }}"
       
       # 6) TV notifications (MIT STREAM-RESULT UND VERIFIED LEVEL)
       # 6a) LG WebOS TV
@@ -2064,7 +2119,7 @@ action:
                                 volume: "{{ notification_volume }}"
                                 critical: true
       
-      # 9) Update push (MIT VERIFIED LEVEL UND STREAM-RESULT)
+      # 9) Update push (MIT VERIFIED LEVEL, STREAM-RESULT UND RETRY-INFO)
       - if:
           - condition: template
             value_template: "{{ current_update_push and stream_result != '' }}"
@@ -2077,9 +2132,9 @@ action:
                     title: "{{ camera }} - Update {{ notification_time }}"
                     message: >
                       {% if verified_detection != detection_level %}
-                        VERIFIZIERT: {{ stream_result }} ({{ final_interruption_level }})
+                        VERIFIZIERT: {{ stream_result }} ({{ final_interruption_level }}){% if stream_attempts_used > 1 %} [{{ stream_attempts_used }} Versuche]{% endif %}
                       {% else %}
-                        Analyse: {{ stream_result }} ({{ final_interruption_level }})
+                        Analyse: {{ stream_result }} ({{ final_interruption_level }}){% if stream_attempts_used > 1 %} [{{ stream_attempts_used }} Versuche]{% endif %}
                       {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
