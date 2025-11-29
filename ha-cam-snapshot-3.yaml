@@ -19,7 +19,7 @@ blueprint:
 # 3.1.0: Stream-Analyse Retry bei "Unklar"
 #        - Neue Inputs: stream_max_retries, stream_retry_delay
 #        - Automatischer Retry wenn Ergebnis "Unklar"
-#        - Erweiterter Prompt bei Retry-Versuchen
+#        - Verstärkter Prompt bei Retries (ermutigt zur Entscheidung)
 #        - stream_attempts_used Variable für Debugging
 #        - Fix für Variablen-Scope zwischen if-Blöcken
 # 3.0.1: Hotfix - Action-Buttons zum Update-Push hinzugefügt
@@ -1963,8 +1963,10 @@ action:
                     model: !input model
                     message: >
                       {% if repeat.index > 1 %}
-                      RETRY ATTEMPT {{ repeat.index }}/{{ stream_max_retries }}: Previous analysis was unclear.
-                      Take more time to analyze the movement pattern carefully.
+                      IMPORTANT: Avoid responding with "Unklar" if at all possible.
+                      Make your best assessment even if visibility is poor, lighting is difficult, or the subject is partially obscured.
+                      If you detect any movement pattern consistent with a human (walking, standing, gestures), classify as "Person erkannt".
+                      Only use "Unklar" as absolute last resort when truly no determination can be made.
                       
                       {% endif %}
                       {{ stream_prompt }}
