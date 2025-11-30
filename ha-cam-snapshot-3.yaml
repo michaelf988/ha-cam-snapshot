@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.2.0"
+  name: "Camera Event Notification 3.3.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,16 +16,20 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
-# 3.1.0: Umfangreiches Update für Retry-Logik und Benachrichtigungstexte
-#        - Stream-Analyse: Retry bei "Unklar" mit konfigurierbaren Parametern
+# 3.3.0: Überarbeitete Benachrichtigungstexte und Debug-Schalter
+#        - Neuer Input: debug_info_enabled (Sonstiges)
+#        - Deutsche Benachrichtigungstexte für alle Kanäle
+#        - Debug-Infos in Push-Nachrichten ein/ausschaltbar
+#        - LG TV/Other Notify: Neue Status-basierte Logik
+#        - TTS: Neue Status-basierte Ansagen
+#        - Alarm: Vereinfachte Nachrichten ohne Debug-Info
 #        - Importance-Analyse: Retry bei ungültiger AI-Antwort
-#        - Neue Inputs: stream_max_retries, stream_retry_delay, 
-#          importance_max_retries, importance_retry_delay
-#        - Status-Tracking: importance_status, stream_status
-#        - Deutsche Benachrichtigungstexte mit Debug-Infos
-#        - Edge-Case Handling: no_response, invalid_response, still_unclear
-#        - Bei AI-Fehlern: Fallback auf "probably-person" (Option B)
-#        - Verstärkte Prompts bei Retry-Versuchen
+#        - Bei AI-Fehlern: Fallback auf "probably-person"
+# 3.1.0: Stream-Analyse Retry bei "Unklar"
+#        - Neue Inputs: stream_max_retries, stream_retry_delay
+#        - Automatischer Retry wenn Ergebnis "Unklar"
+#        - Verstärkter Prompt bei Retries
+#        - stream_attempts_used Variable für Debugging
 # 3.0.1: Hotfix - Action-Buttons zum Update-Push hinzugefügt
 # 3.0.0: Kompletter Umbau des Detection-Systems
 #        - 3-stufige Wichtigkeitsanalyse (no/probably/definitely-person)
@@ -1374,6 +1378,13 @@ blueprint:
       icon: mdi:cog
       collapsed: true
       input:
+        debug_info_enabled:
+          name: "Debug-Infos in Benachrichtigungen"
+          description: "Zeigt technische Details (Szenario, Detection-Level, etc.) in Push-Nachrichten"
+          default: true
+          selector:
+            boolean:
+
         global_cooldown:
           name: "Globaler Cooldown"
           description: "Pause am Ende der Automation"
@@ -1561,6 +1572,7 @@ variables:
   s6_alarm_mode: !input s6_alarm_mode
   s6_update_push: !input s6_update_push
   
+  debug_info_enabled: !input debug_info_enabled
   global_cooldown: !input global_cooldown
   
   # Camera detection
@@ -1960,8 +1972,10 @@ action:
                       {% else %}
                       Bewegung erkannt - keine Person
                       {% endif %}
+                      {% if debug_info_enabled %}
                       
-                      (S{{ active_scenario }} | {{ detection_level }} | {{ initial_interruption_level }}{% if importance_attempts_used > 0 %} | {{ importance_attempts_used }} Versuche{% endif %})
+                      (S{{ active_scenario }} | {{ detection_level }} | {{ initial_interruption_level }}{% if importance_attempts_used > 1 %} | {{ importance_attempts_used }} Versuche{% endif %})
+                      {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -2115,11 +2129,18 @@ action:
             data:
               title: "{{ lg_tv_message_title }}"
               message: >
-                {% set msg = lg_tv_message_text %}
-                {% if 'stream_result' in msg and stream_result %}
-                  {{ msg | replace('{{ stream_result }}', stream_result) }}
+                {% if stream_status == 'success' and stream_result %}
+                {{ camera_friendly }}: {{ stream_result }}
+                {% elif importance_status == 'disabled' %}
+                {{ camera_friendly }}: Bewegung erkannt
+                {% elif importance_status in ['no_response', 'invalid_response'] %}
+                {{ camera_friendly }}: Bewegung (Analyse fehlgeschlagen)
+                {% elif detection_level == 'definitely-person' %}
+                {{ camera_friendly }}: Person erkannt
+                {% elif detection_level == 'probably-person' %}
+                {{ camera_friendly }}: Möglicherweise Person
                 {% else %}
-                  {{ msg }}
+                {{ camera_friendly }}: Bewegung erkannt
                 {% endif %}
       
       # 6b) Other TV/Notify services
@@ -2136,11 +2157,18 @@ action:
                   data:
                     title: "{{ other_notify_title }}"
                     message: >
-                      {% set msg = other_notify_text %}
-                      {% if 'stream_result' in msg and stream_result %}
-                        {{ msg | replace('{{ stream_result }}', stream_result) }}
+                      {% if stream_status == 'success' and stream_result %}
+                      {{ camera_friendly }}: {{ stream_result }}
+                      {% elif importance_status == 'disabled' %}
+                      {{ camera_friendly }}: Bewegung erkannt
+                      {% elif importance_status in ['no_response', 'invalid_response'] %}
+                      {{ camera_friendly }}: Bewegung (Analyse fehlgeschlagen)
+                      {% elif detection_level == 'definitely-person' %}
+                      {{ camera_friendly }}: Person erkannt
+                      {% elif detection_level == 'probably-person' %}
+                      {{ camera_friendly }}: Möglicherweise Person
                       {% else %}
-                        {{ msg }}
+                      {{ camera_friendly }}: Bewegung erkannt
                       {% endif %}
       
       # 7) TTS announcement (NUR BEI CRITICAL - initial oder verified)
@@ -2173,11 +2201,16 @@ action:
                           cache: false
                           media_player_entity_id: "{{ repeat.item }}"
                           message: >
-                            {% set msg = tts_message %}
-                            {% if 'stream_result' in msg and stream_result %}
-                              {{ msg | replace('{{ stream_result }}', stream_result) }}
+                            {% if stream_status == 'success' and stream_result %}
+                            Achtung! {{ camera_friendly }}: {{ stream_result }}
+                            {% elif importance_status in ['no_response', 'invalid_response'] %}
+                            Achtung! {{ camera_friendly }}: Bewegung erkannt, Analyse fehlgeschlagen
+                            {% elif detection_level == 'definitely-person' %}
+                            Achtung! {{ camera_friendly }}: Person erkannt
+                            {% elif detection_level == 'probably-person' %}
+                            Achtung! {{ camera_friendly }}: Möglicherweise Person erkannt
                             {% else %}
-                              {{ msg }}
+                            Achtung! {{ camera_friendly }} meldet kritisches Ereignis
                             {% endif %}
       
       # 8) Alarm repetitions (MIT VERIFIED LEVEL)
@@ -2208,7 +2241,16 @@ action:
                       - service: "notify.{{ repeat.item }}"
                         data:
                           title: "{{ camera }} - ALARM {{ notification_time }}"
-                          message: "Szenario {{ active_scenario }}: {{ verified_detection }} ({{ final_interruption_level }}) [{{ alarm_index }}/{{ alarm_total }}]"
+                          message: >
+                            {% if stream_status == 'success' and stream_result %}
+                            {{ stream_result }} [{{ alarm_index }}/{{ alarm_total }}]
+                            {% elif verified_detection == 'definitely-person' %}
+                            Person erkannt [{{ alarm_index }}/{{ alarm_total }}]
+                            {% elif verified_detection == 'probably-person' %}
+                            Möglicherweise Person [{{ alarm_index }}/{{ alarm_total }}]
+                            {% else %}
+                            Bewegung erkannt [{{ alarm_index }}/{{ alarm_total }}]
+                            {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
@@ -2245,8 +2287,10 @@ action:
                       {% else %}
                       {{ stream_result }}
                       {% endif %}
+                      {% if debug_info_enabled %}
                       
                       (S{{ active_scenario }} | {{ detection_level }} → {{ verified_detection }} | {{ final_interruption_level }} | {{ stream_attempts_used }} Versuche)
+                      {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
