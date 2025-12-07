@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.3.0"
+  name: "Camera Event Notification 3.3.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,6 +16,9 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.3.1: Fix für Template-Warnungen in HA 2025.12
+#        - Entfernt: tts_message, lg_tv_message_text, other_notify_text Inputs
+#        - Diese wurden seit 3.3.0 nicht mehr verwendet (Logik direkt im Code)
 # 3.3.0: Überarbeitete Benachrichtigungstexte und Debug-Schalter
 #        - Neuer Input: debug_info_enabled (Sonstiges)
 #        - Deutsche Benachrichtigungstexte für alle Kanäle
@@ -281,18 +284,6 @@ blueprint:
               max: 1
               step: 0.05
 
-        tts_message:
-          name: "TTS Nachricht Template"
-          description: "Verfügbare: camera_friendly, stream_result"
-          default: >
-            {% if stream_result is defined and stream_result != '' %}
-              Achtung! {{ camera_friendly }}: {{ stream_result }}
-            {% else %}
-              Achtung! {{ camera_friendly }} meldet kritisches Ereignis
-            {% endif %}
-          selector:
-            text:
-
         tts_repeat_count:
           name: "TTS Wiederholungen"
           default: 3
@@ -496,18 +487,6 @@ blueprint:
           selector:
             text:
 
-        lg_tv_message_text:
-          name: "LG TV Nachricht Template"
-          description: "Verfügbare: camera_friendly, stream_result"
-          default: >
-            {% if stream_result is defined and stream_result != '' %}
-              Bewegung {{ camera_friendly }}: {{ stream_result }}
-            {% else %}
-              Bewegung {{ camera_friendly }}, womöglich Person
-            {% endif %}
-          selector:
-            text:
-
         # Andere TV/Notify Services (optional)
         other_notify_entities:
           name: "Weitere Notify Services (optional)"
@@ -528,18 +507,6 @@ blueprint:
         other_notify_title:
           name: "Weitere Services - Titel"
           default: "Sicherheitswarnung"
-          selector:
-            text:
-
-        other_notify_text:
-          name: "Weitere Services - Text Template"
-          description: "Verfügbare: camera_friendly, stream_result"
-          default: >
-            {% if stream_result is defined and stream_result != '' %}
-              Bewegung {{ camera_friendly }}: {{ stream_result }}
-            {% else %}
-              Bewegung {{ camera_friendly }}, womöglich Person
-            {% endif %}
           selector:
             text:
 
@@ -1436,7 +1403,6 @@ variables:
   tts_target_entity: !input tts_target_entity
   tts_media_players: !input tts_media_players
   tts_volume: !input tts_volume
-  tts_message: !input tts_message
   tts_repeat_count: !input tts_repeat_count
   tts_repeat_delay: !input tts_repeat_delay
   
@@ -1444,12 +1410,10 @@ variables:
   lg_tv_enable: !input lg_tv_enable
   lg_tv_conditions: !input lg_tv_conditions
   lg_tv_message_title: !input lg_tv_message_title
-  lg_tv_message_text: !input lg_tv_message_text
   
   other_notify_entities: !input other_notify_entities
   other_notify_conditions: !input other_notify_conditions
   other_notify_title: !input other_notify_title
-  other_notify_text: !input other_notify_text
   
   # Action buttons
   action1_enabled: !input action1_enabled
