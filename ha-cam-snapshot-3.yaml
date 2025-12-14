@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.4.0"
+  name: "Camera Event Notification 3.4.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,11 +16,13 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
-# 3.4.0: Alarm-Wiederholungen Umstrukturierung
+# 3.4.0: Alarm-Wiederholungen Umstrukturierung & TTS Fix
 #        - Modul 8 (separate Alarm-Wiederholungen) entfernt
-#        - Modul 9 (Update-Push): Jetzt mit count + for_each verschachtelt
-#        - Alarm-Wiederholungen nur noch bei Modul 7 (TTS) und Modul 9 (Update)
+#        - Modul 8 (ehemals 9, Update-Push): Jetzt mit count + for_each verschachtelt
+#        - Alarm-Wiederholungen nur noch bei Modul 7 (TTS) und Modul 8 (Update)
 #        - Alarm-Wiederholungen basieren auf finalen Stream-Analyse-Ergebnissen
+#        - TTS Fix: Entfernung der fehlerhaften current_tts_conditions Prüfung
+#        - TTS läuft jetzt korrekt bei critical events
 #        - Konsistente repeat-Schleifen Struktur in allen Modulen
 # 3.3.1: Fix für Template-Warnungen in HA 2025.12
 #        - Entfernt: tts_message, lg_tv_message_text, other_notify_text Inputs
@@ -2147,8 +2149,6 @@ action:
             value_template: "{{ current_tts_enable }}"
           - condition: template
             value_template: "{{ final_interruption_level == 'critical' }}"
-          - condition: and
-            conditions: "{{ current_tts_conditions }}"
           - condition: template
             value_template: "{{ tts_media_players|length > 0 and tts_target_entity }}"
         then:
