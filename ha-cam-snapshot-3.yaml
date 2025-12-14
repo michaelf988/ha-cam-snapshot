@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.3.1"
+  name: "Camera Event Notification 3.4.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,6 +16,12 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.4.0: Alarm-Wiederholungen Umstrukturierung
+#        - Modul 8 (separate Alarm-Wiederholungen) entfernt
+#        - Modul 9 (Update-Push): Jetzt mit count + for_each verschachtelt
+#        - Alarm-Wiederholungen nur noch bei Modul 7 (TTS) und Modul 9 (Update)
+#        - Alarm-Wiederholungen basieren auf finalen Stream-Analyse-Ergebnissen
+#        - Konsistente repeat-Schleifen Struktur in allen Modulen
 # 3.3.1: Fix für Template-Warnungen in HA 2025.12
 #        - Entfernt: tts_message, lg_tv_message_text, other_notify_text Inputs
 #        - Diese wurden seit 3.3.0 nicht mehr verwendet (Logik direkt im Code)
@@ -2149,7 +2155,14 @@ action:
           - repeat:
               count: "{{ tts_repeat_count }}"
               sequence:
-                - delay: !input tts_repeat_delay
+                # Verzögerung nur zwischen Wiederholungen (nicht vor der ersten)
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input tts_repeat_delay
+                
+                # Sende TTS an alle Lautsprecher
                 - repeat:
                     for_each: "{{ tts_media_players }}"
                     sequence:
@@ -2177,15 +2190,30 @@ action:
                             Achtung! {{ camera_friendly }} meldet kritisches Ereignis
                             {% endif %}
       
-      # 8) Alarm repetitions (MIT VERIFIED LEVEL)
+      # 8) Update push (MIT VERIFIED LEVEL, STREAM-RESULT, RETRY-INFO UND ALARM-WIEDERHOLUNGEN)
       - if:
           - condition: template
-            value_template: "{{ current_alarm_mode }}"
-          - condition: and
-            conditions: "{{ current_alarm_conditions if active_scenario == '4' else [] }}"
+            value_template: "{{ current_update_push and stream_status != 'disabled' }}"
         then:
+          # Bestimme ob Alarm-Modus aktiv ist
+          - variables:
+              update_is_alarm: >
+                {% if current_alarm_mode %}
+                  {% if active_scenario == '4' %}
+                    {{ current_alarm_conditions | length == 0 or true }}
+                  {% else %}
+                    true
+                  {% endif %}
+                {% else %}
+                  false
+                {% endif %}
+              update_repeat_count: "{{ alarm_repetition_count if update_is_alarm else 1 }}"
+              update_title_prefix: "{{ 'ALARM' if update_is_alarm else 'Update' }}"
+              update_interruption_level: "{{ 'critical' if update_is_alarm else final_interruption_level }}"
+              update_sound_critical: "{{ update_is_alarm }}"
+          
           - repeat:
-              count: "{{ alarm_repetition_count }}"
+              count: "{{ update_repeat_count }}"
               sequence:
                 # Verzögerung nur zwischen Wiederholungen (nicht vor der ersten)
                 - if:
@@ -2196,112 +2224,77 @@ action:
                 
                 # Sende an alle Geräte
                 - variables:
-                    alarm_index: "{{ repeat.index }}"
-                    alarm_total: "{{ alarm_repetition_count }}"
+                    update_index: "{{ repeat.index }}"
+                    update_total: "{{ update_repeat_count }}"
                 
                 - repeat:
                     for_each: "{{ notify_services_all }}"
                     sequence:
                       - service: "notify.{{ repeat.item }}"
                         data:
-                          title: "{{ camera }} - ALARM {{ notification_time }}"
+                          title: "{{ camera }} - {{ update_title_prefix }} {{ notification_time }}"
                           message: >
-                            {% if stream_status == 'success' and stream_result %}
-                            {{ stream_result }} [{{ alarm_index }}/{{ alarm_total }}]
-                            {% elif verified_detection == 'definitely-person' %}
-                            Person erkannt [{{ alarm_index }}/{{ alarm_total }}]
-                            {% elif verified_detection == 'probably-person' %}
-                            Möglicherweise Person [{{ alarm_index }}/{{ alarm_total }}]
+                            {% if stream_status == 'no_response' %}
+                            Stream-Analyse konnte nicht durchgeführt werden
+                            {% elif stream_status == 'still_unclear' %}
+                            Stream-Analyse blieb unklar
+                            {% elif verified_detection != detection_level %}
+                            VERIFIZIERT: {{ stream_result }}
                             {% else %}
-                            Bewegung erkannt [{{ alarm_index }}/{{ alarm_total }}]
+                            {{ stream_result }}
+                            {% endif %}
+                            {% if update_is_alarm %} [{{ update_index }}/{{ update_total }}]{% endif %}
+                            {% if debug_info_enabled and not update_is_alarm %}
+                            
+                            (S{{ active_scenario }} | {{ detection_level }} → {{ verified_detection }} | {{ final_interruption_level }} | {{ stream_attempts_used }} Versuche)
                             {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
-                            tag: "{{ notification_tag }}_alarm"
+                            tag: "{{ notification_tag }}{{ '_alarm' if update_is_alarm else '' }}"
                             group: "cams"
                             attachment:
                               url: "{{ snapshot_access_file_path }}"
                               content_type: JPEG
+                            actions: >
+                              {% set actions = [] %}
+                              {% if action1_enabled %}
+                                {% set action1_dict = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
+                                {% if action1_uri %}
+                                  {% set action1_dict = action1_dict | combine({'uri': action1_uri}) %}
+                                {% endif %}
+                                {% if action1_icon %}
+                                  {% set action1_dict = action1_dict | combine({'icon': action1_icon}) %}
+                                {% endif %}
+                                {% set actions = actions + [action1_dict] %}
+                              {% endif %}
+                              {% if action2_enabled %}
+                                {% set action2_dict = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
+                                {% if action2_uri %}
+                                  {% set action2_dict = action2_dict | combine({'uri': action2_uri}) %}
+                                {% endif %}
+                                {% if action2_icon %}
+                                  {% set action2_dict = action2_dict | combine({'icon': action2_icon}) %}
+                                {% endif %}
+                                {% set actions = actions + [action2_dict] %}
+                              {% endif %}
+                              {% if action3_enabled %}
+                                {% set action3_dict = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
+                                {% if action3_uri %}
+                                  {% set action3_dict = action3_dict | combine({'uri': action3_uri}) %}
+                                {% endif %}
+                                {% if action3_icon %}
+                                  {% set action3_dict = action3_dict | combine({'icon': action3_icon}) %}
+                                {% endif %}
+                                {% set actions = actions + [action3_dict] %}
+                              {% endif %}
+                              {{ actions }}
                             push:
-                              interruption-level: "critical"
+                              interruption-level: "{{ update_interruption_level }}"
                               sound:
                                 name: "{{ notification_sound }}"
                                 volume: "{{ notification_volume }}"
-                                critical: true
-      
-      # 9) Update push (MIT VERIFIED LEVEL, STREAM-RESULT UND RETRY-INFO)
-      - if:
-          - condition: template
-            value_template: "{{ current_update_push and stream_status != 'disabled' }}"
-        then:
-          - repeat:
-              for_each: "{{ notify_services_all }}"
-              sequence:
-                - service: "notify.{{ repeat.item }}"
-                  data:
-                    title: "{{ camera }} - Update {{ notification_time }}"
-                    message: >
-                      {% if stream_status == 'no_response' %}
-                      Stream-Analyse konnte nicht durchgeführt werden
-                      {% elif stream_status == 'still_unclear' %}
-                      Stream-Analyse blieb unklar
-                      {% elif verified_detection != detection_level %}
-                      VERIFIZIERT: {{ stream_result }}
-                      {% else %}
-                      {{ stream_result }}
-                      {% endif %}
-                      {% if debug_info_enabled %}
-                      
-                      (S{{ active_scenario }} | {{ detection_level }} → {{ verified_detection }} | {{ final_interruption_level }} | {{ stream_attempts_used }} Versuche)
-                      {% endif %}
-                    data:
-                      url: "{{ tap_navigate }}"
-                      clickAction: "{{ tap_navigate }}"
-                      tag: "{{ notification_tag }}"
-                      group: "cams"
-                      attachment:
-                        url: "{{ snapshot_access_file_path }}"
-                        content_type: JPEG
-                      actions: >
-                        {% set actions = [] %}
-                        {% if action1_enabled %}
-                          {% set action1_dict = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
-                          {% if action1_uri %}
-                            {% set action1_dict = action1_dict | combine({'uri': action1_uri}) %}
-                          {% endif %}
-                          {% if action1_icon %}
-                            {% set action1_dict = action1_dict | combine({'icon': action1_icon}) %}
-                          {% endif %}
-                          {% set actions = actions + [action1_dict] %}
-                        {% endif %}
-                        {% if action2_enabled %}
-                          {% set action2_dict = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
-                          {% if action2_uri %}
-                            {% set action2_dict = action2_dict | combine({'uri': action2_uri}) %}
-                          {% endif %}
-                          {% if action2_icon %}
-                            {% set action2_dict = action2_dict | combine({'icon': action2_icon}) %}
-                          {% endif %}
-                          {% set actions = actions + [action2_dict] %}
-                        {% endif %}
-                        {% if action3_enabled %}
-                          {% set action3_dict = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
-                          {% if action3_uri %}
-                            {% set action3_dict = action3_dict | combine({'uri': action3_uri}) %}
-                          {% endif %}
-                          {% if action3_icon %}
-                            {% set action3_dict = action3_dict | combine({'icon': action3_icon}) %}
-                          {% endif %}
-                          {% set actions = actions + [action3_dict] %}
-                        {% endif %}
-                        {{ actions }}
-                      push:
-                        interruption-level: "{{ final_interruption_level }}"
-                        sound:
-                          name: "{{ notification_sound }}"
-                          volume: "{{ notification_volume }}"
-                          critical: "{{ final_interruption_level == 'critical' }}"
+                                critical: "{{ update_sound_critical }}"
   
   # Global cooldown
   - delay: !input global_cooldown
