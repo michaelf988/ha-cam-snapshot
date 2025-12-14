@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.4.2"
+  name: "Camera Event Notification 3.4.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,6 +16,12 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.4.3: TTS Condition Fix - Boolean Evaluation
+#        - Fix: TTS condition evaluiert jetzt korrekt zu boolean
+#        - Separate conditions für tts_media_players und tts_target_entity
+#        - TTS läuft nun zuverlässig bei critical events
+# 3.4.2: (übersprungen)
+# 3.4.1: (übersprungen)
 # 3.4.0: Alarm-Wiederholungen Umstrukturierung & TTS Fix
 #        - Modul 8 (separate Alarm-Wiederholungen) entfernt
 #        - Modul 8 (ehemals 9, Update-Push): Jetzt mit count + for_each verschachtelt
@@ -2150,7 +2156,9 @@ action:
           - condition: template
             value_template: "{{ final_interruption_level == 'critical' }}"
           - condition: template
-            value_template: "{{ tts_media_players|length > 0 and tts_target_entity }}"
+            value_template: "{{ tts_media_players|length > 0 }}"
+          - condition: template
+            value_template: "{{ tts_target_entity != none and tts_target_entity|length > 0 }}"
         then:
           - repeat:
               count: "{{ tts_repeat_count }}"
