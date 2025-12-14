@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.4.3"
+  name: "Camera Event Notification 3.4.4"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -16,10 +16,19 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
-# 3.4.3: TTS Condition Fix - Boolean Evaluation
+# 3.4.4: Update-Push mit Wiederholungen (count + for_each)
+#        - Modul 8: Verschachtelte repeat-Struktur implementiert
+#        - count basiert auf current_alarm_mode und alarm_repetition_count
+#        - Wiederholungen mit alarm_repetition_delay zwischen Durchläufen
+#        - Konsistente Struktur wie TTS-Modul (Modul 7)
+#        - Wenn alarm_mode deaktiviert: 1x Update (wie bisher)
+#        - Wenn alarm_mode aktiviert: Mehrfache Wiederholungen
+# 3.4.3: TTS Condition Fix & Update-Push Wiederherstellung
 #        - Fix: TTS condition evaluiert jetzt korrekt zu boolean
 #        - Separate conditions für tts_media_players und tts_target_entity
 #        - TTS läuft nun zuverlässig bei critical events
+#        - Modul 8 (Update-Push): Wiederherstellung der ursprünglichen Funktionalität
+#        - Entfernung der unnötigen Alarm-Modus-Logik aus Update-Push
 # 3.4.2: (übersprungen)
 # 3.4.1: (übersprungen)
 # 3.4.0: Alarm-Wiederholungen Umstrukturierung & TTS Fix
@@ -2198,30 +2207,13 @@ action:
                             Achtung! {{ camera_friendly }} meldet kritisches Ereignis
                             {% endif %}
       
-      # 8) Update push (MIT VERIFIED LEVEL, STREAM-RESULT, RETRY-INFO UND ALARM-WIEDERHOLUNGEN)
+      # 8) Update push (MIT VERIFIED LEVEL, STREAM-RESULT, RETRY-INFO UND WIEDERHOLUNGEN)
       - if:
           - condition: template
             value_template: "{{ current_update_push and stream_status != 'disabled' }}"
         then:
-          # Bestimme ob Alarm-Modus aktiv ist
-          - variables:
-              update_is_alarm: >
-                {% if current_alarm_mode %}
-                  {% if active_scenario == '4' %}
-                    {{ current_alarm_conditions | length == 0 or true }}
-                  {% else %}
-                    true
-                  {% endif %}
-                {% else %}
-                  false
-                {% endif %}
-              update_repeat_count: "{{ alarm_repetition_count if update_is_alarm else 1 }}"
-              update_title_prefix: "{{ 'ALARM' if update_is_alarm else 'Update' }}"
-              update_interruption_level: "{{ 'critical' if update_is_alarm else final_interruption_level }}"
-              update_sound_critical: "{{ update_is_alarm }}"
-          
           - repeat:
-              count: "{{ update_repeat_count }}"
+              count: "{{ alarm_repetition_count if current_alarm_mode else 1 }}"
               sequence:
                 # Verzögerung nur zwischen Wiederholungen (nicht vor der ersten)
                 - if:
@@ -2231,16 +2223,12 @@ action:
                     - delay: !input alarm_repetition_delay
                 
                 # Sende an alle Geräte
-                - variables:
-                    update_index: "{{ repeat.index }}"
-                    update_total: "{{ update_repeat_count }}"
-                
                 - repeat:
                     for_each: "{{ notify_services_all }}"
                     sequence:
                       - service: "notify.{{ repeat.item }}"
                         data:
-                          title: "{{ camera }} - {{ update_title_prefix }} {{ notification_time }}"
+                          title: "{{ camera }} - Update {{ notification_time }}"
                           message: >
                             {% if stream_status == 'no_response' %}
                             Stream-Analyse konnte nicht durchgeführt werden
@@ -2251,15 +2239,14 @@ action:
                             {% else %}
                             {{ stream_result }}
                             {% endif %}
-                            {% if update_is_alarm %} [{{ update_index }}/{{ update_total }}]{% endif %}
-                            {% if debug_info_enabled and not update_is_alarm %}
+                            {% if debug_info_enabled %}
                             
                             (S{{ active_scenario }} | {{ detection_level }} → {{ verified_detection }} | {{ final_interruption_level }} | {{ stream_attempts_used }} Versuche)
                             {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
-                            tag: "{{ notification_tag }}{{ '_alarm' if update_is_alarm else '' }}"
+                            tag: "{{ notification_tag }}"
                             group: "cams"
                             attachment:
                               url: "{{ snapshot_access_file_path }}"
@@ -2298,11 +2285,11 @@ action:
                               {% endif %}
                               {{ actions }}
                             push:
-                              interruption-level: "{{ update_interruption_level }}"
+                              interruption-level: "{{ final_interruption_level }}"
                               sound:
                                 name: "{{ notification_sound }}"
                                 volume: "{{ notification_volume }}"
-                                critical: "{{ update_sound_critical }}"
+                                critical: "{{ final_interruption_level == 'critical' }}"
   
   # Global cooldown
   - delay: !input global_cooldown
