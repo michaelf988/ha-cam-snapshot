@@ -12,7 +12,7 @@ blueprint:
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-4.yaml
 
 # =======================
 # CHANGELOG
