@@ -12,7 +12,7 @@ blueprint:
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-4.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
 
 # =======================
 # CHANGELOG
@@ -2078,8 +2078,6 @@ action:
       
       # 4) Kombiniere Stream + Snapshot Ergebnisse
       - variables:
-      # 4) Kombiniere Stream + Snapshot Ergebnisse
-      - variables:
           detection_level: >
             {% if stream_detection_level == 'definitely-person' %}
               definitely-person
@@ -2135,7 +2133,6 @@ action:
             {% endif %}
       
       # 5) Gate check
-      # 5) Gate check
       - if:
           - condition: template
             value_template: "{{ current_gate_enable }}"
@@ -2145,7 +2142,6 @@ action:
         then:
           - stop: "Gate: Level '{{ final_interruption_level }}' < Threshold '{{ current_gate_threshold }}'"
       
-      # 6) Mobile push notification
       # 6) Mobile push notification
       - if:
           - condition: template
