@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 4.0.2"
+  name: "Camera Event Notification 4.0.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -2102,34 +2102,26 @@ action:
             {% endif %}
           
           final_interruption_level: >
-            {% set _final = '' %}
             {% if stream_detection_level == 'definitely-person' %}
-              {% set _final = 'definitely-person' %}
+              {{ current_level_definitely_person }}
             {% elif stream_detection_level == 'no-person' %}
               {% if snapshot_detection_level == 'definitely-person' %}
-                {% set _final = 'definitely-person' %}
+                {{ current_level_definitely_person }}
               {% elif snapshot_detection_level == 'probably-person' %}
-                {% set _final = 'probably-person' %}
+                {{ current_level_probably_person }}
               {% else %}
-                {% set _final = 'no-person' %}
+                {{ current_level_no_person }}
               {% endif %}
             {% elif stream_detection_level == 'probably-person' %}
               {% if snapshot_detection_level == 'definitely-person' %}
-                {% set _final = 'definitely-person' %}
+                {{ current_level_definitely_person }}
               {% elif snapshot_detection_level == 'no-person' %}
-                {% set _final = 'probably-person' %}
+                {{ current_level_probably_person }}
               {% else %}
-                {% set _final = 'probably-person' %}
+                {{ current_level_probably_person }}
               {% endif %}
             {% else %}
-              {% set _final = 'probably-person' %}
-            {% endif %}
-            {% if _final == 'definitely-person' %}
-              {{ current_level_definitely_person }}
-            {% elif _final == 'probably-person' %}
               {{ current_level_probably_person }}
-            {% else %}
-              {{ current_level_no_person }}
             {% endif %}
       
       # 5) Gate check
