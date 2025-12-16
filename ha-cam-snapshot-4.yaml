@@ -207,7 +207,7 @@ blueprint:
           selector:
             number:
               min: 1
-              max: 1000
+              max: 10000
 
         stream_max_retries:
           name: "Stream-Analyse: Max Versuche"
