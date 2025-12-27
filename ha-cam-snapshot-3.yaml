@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.6.1"
+  name: "Camera Event Notification 3.6.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -20,20 +20,14 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.6.2: AI-Prompt Standardisierung (English)
+#        - Video-Prompt auf Englisch umgestellt (bessere AI-Performance)
+#        - Interne Logik nutzt nun technische Keys (person-detected etc.)
+#        - Deutsche Ausgabe erfolgt via Mapping-Tabelle
 # 3.6.1: Fix Race Condition (Video-File)
 #        - Dynamische Wartezeit vor Video-Analyse hinzugefügt
 #        - Berechnung: Video-Dauer + Rückblick + 2 Sekunden Puffer
-#        - Verhindert Zugriffsfehler auf noch nicht finalisierte Videodateien
 # 3.6.0: Separate Snapshot/Video-Steuerung & Neues Szenario 4a
-#        - Snapshot und Video-Aufnahme pro Szenario separat steuerbar
-#        - Hinweis: Video-Analyse benötigt aktivierte Video-Aufnahme
-#        - Neues Szenario 4a: Abwesend, Alarmanlage extern scharf, tagsüber
-#        - Szenario 4 umbenannt: Abwesend, Alarmanlage extern scharf, spät abends
-#        - Insgesamt 7 Szenarien (1, 2, 3, 4, 4a, 5, 6)
-# 3.5.0: Video-Analyse & Parallele Aufnahme
-#        - Modul 1: Parallele Ausführung von Snapshot und Video-Aufnahme
-#        - Modul 5: Umstellung auf llmvision.video_analyzer
-#        - Unterschiedliche Töne/Lautstärke für normal vs. critical Push
 
   input:
     # =======================
@@ -282,15 +276,15 @@ blueprint:
             TASK: Identify the primary subject of movement/activity.
             
             RESPONSE OPTIONS (choose most relevant):
-            - "Person erkannt" = Single person visible
-            - "Mehrere Personen" = Multiple people visible
-            - "Fahrzeug erkannt" = Vehicle detected
-            - "Tier erkannt" = Animal detected
-            - "Person und Fahrzeug" = Both person and vehicle
-            - "Unklar" = Movement detected but subject unclear
-            - "Keine Bewegung" = No significant movement
+            - "person-detected" = Single person visible
+            - "multiple-people" = Multiple people visible
+            - "vehicle-detected" = Vehicle detected
+            - "animal-detected" = Animal detected
+            - "person-vehicle" = Both person and vehicle
+            - "unclear" = Movement detected but subject unclear
+            - "no-motion" = No significant movement
             
-            RESPONSE: One phrase only from the list above.
+            RESPONSE: One label only from the list above.
           selector:
             text:
               multiline: true
@@ -1532,6 +1526,16 @@ variables:
   response:
     response_text: ""
   
+  # NEU in 3.6.2: Mapping für deutsche Benachrichtigungen
+  video_result_map:
+    person-detected: "Person erkannt"
+    multiple-people: "Mehrere Personen"
+    vehicle-detected: "Fahrzeug erkannt"
+    animal-detected: "Tier erkannt"
+    person-vehicle: "Person und Fahrzeug"
+    unclear: "Unklar"
+    no-motion: "Keine Bewegung"
+
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
   notify_devices: !input notify_device
@@ -2165,16 +2169,16 @@ action:
             value_template: "{{ video_should_run and camera_entity_snapshot != '' }}"
         then:
           - variables:
-              _video_result_temp: "Unklar"
+              _video_result_temp: "unclear"
           
-          # NEU in 3.6.1: Wartezeit = Video-Dauer + Lookback + 2s Puffer
+          # 3.6.1: Wartezeit = Video-Dauer + Lookback + 2s Puffer
           - delay: 
               seconds: "{{ video_duration + video_lookback + 2 }}"
           
           - repeat:
               while:
                 - condition: template
-                  value_template: "{{ _video_result_temp == 'Unklar' and repeat.index <= video_max_retries }}"
+                  value_template: "{{ _video_result_temp == 'unclear' and repeat.index <= video_max_retries }}"
               sequence:
                 - if:
                     - condition: template
@@ -2187,7 +2191,7 @@ action:
                     provider: !input provider
                     model: !input model
                     message: >
-                      {% if repeat.index > 1 %}IMPORTANT: Avoid "Unklar". Make your best assessment.
+                      {% if repeat.index > 1 %}IMPORTANT: Avoid "unclear". Make your best assessment.
                       
                       {% endif %}{{ video_prompt }}
                     include_filename: true
@@ -2202,14 +2206,14 @@ action:
           - variables:
               video_status: >
                 {% if _video_result_temp == '' %}no_response
-                {% elif _video_result_temp == 'Unklar' %}still_unclear
+                {% elif _video_result_temp == 'unclear' %}still_unclear
                 {% else %}success{% endif %}
               video_result: "{{ _video_result_temp }}"
               verified_detection: >
-                {% if _video_result_temp in ['Person erkannt', 'Mehrere Personen', 'Person und Fahrzeug'] %}definitely-person
+                {% if _video_result_temp in ['person-detected', 'multiple-people', 'person-vehicle'] %}definitely-person
                 {% else %}{{ detection_level }}{% endif %}
               final_interruption_level: >
-                {% set _v = 'definitely-person' if _video_result_temp in ['Person erkannt', 'Mehrere Personen', 'Person und Fahrzeug'] else detection_level %}
+                {% set _v = 'definitely-person' if _video_result_temp in ['person-detected', 'multiple-people', 'person-vehicle'] else detection_level %}
                 {% if _v == 'definitely-person' %}{{ current_level_definitely_person }}
                 {% elif _v == 'probably-person' %}{{ current_level_probably_person }}
                 {% else %}{{ current_level_no_person }}{% endif %}
@@ -2225,7 +2229,8 @@ action:
             data:
               title: "{{ lg_tv_message_title }}"
               message: >
-                {% if video_status == 'success' and video_result %}{{ camera_friendly }}: {{ video_result }}
+                {% if video_status == 'success' and video_result %}
+                  {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
                 {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
                 {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
                 {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
@@ -2243,7 +2248,8 @@ action:
                   data:
                     title: "{{ other_notify_title }}"
                     message: >
-                      {% if video_status == 'success' and video_result %}{{ camera_friendly }}: {{ video_result }}
+                      {% if video_status == 'success' and video_result %}
+                        {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
                       {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
                       {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
                       {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
@@ -2282,7 +2288,8 @@ action:
                           cache: false
                           media_player_entity_id: "{{ repeat.item }}"
                           message: >
-                            {% if video_status == 'success' and video_result %}Achtung! {{ camera_friendly }}: {{ video_result }}
+                            {% if video_status == 'success' and video_result %}
+                              Achtung! {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
                             {% elif detection_level == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
                             {% elif detection_level == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
                             {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
@@ -2309,8 +2316,8 @@ action:
                           message: >
                             {% if video_status == 'no_response' %}Video-Analyse nicht möglich
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
-                            {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result }}
-                            {% else %}{{ video_result }}{% endif %}
+                            {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
+                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
                             {% if debug_info_enabled %}
                             
                             (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
