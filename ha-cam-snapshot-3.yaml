@@ -174,7 +174,7 @@ blueprint:
         importance_target_width:
           name: "Bild-Breite (Pixel)"
           description: "Breite für die Bildanalyse"
-          default: 1280
+          default: 1600
           selector:
             number:
               min: 512
@@ -183,11 +183,11 @@ blueprint:
         importance_max_tokens:
           name: "Max Tokens"
           description: "Maximale Anzahl der Antwort-Tokens"
-          default: 100
+          default: 4000
           selector:
             number:
               min: 1
-              max: 1000
+              max: 10000
 
         importance_max_retries:
           name: "Max Versuche"
@@ -238,7 +238,7 @@ blueprint:
         video_target_width:
           name: "Bild-Breite (Pixel)"
           description: "Breite für die Video-Frame-Analyse"
-          default: 1280
+          default: 1600
           selector:
             number:
               min: 512
@@ -260,7 +260,7 @@ blueprint:
           selector:
             number:
               min: 1
-              max: 1000
+              max: 15000
 
         video_max_retries:
           name: "Max Versuche"
