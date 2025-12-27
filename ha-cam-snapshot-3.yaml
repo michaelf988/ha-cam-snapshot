@@ -256,7 +256,7 @@ blueprint:
         video_max_tokens:
           name: "Max Tokens"
           description: "Maximale Anzahl der Antwort-Tokens"
-          default: 100
+          default: 4000
           selector:
             number:
               min: 1
