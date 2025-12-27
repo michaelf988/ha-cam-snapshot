@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.6.0"
+  name: "Camera Event Notification 3.6.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -20,6 +20,10 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.6.1: Fix Race Condition (Video-File)
+#        - Dynamische Wartezeit vor Video-Analyse hinzugefügt
+#        - Berechnung: Video-Dauer + Rückblick + 2 Sekunden Puffer
+#        - Verhindert Zugriffsfehler auf noch nicht finalisierte Videodateien
 # 3.6.0: Separate Snapshot/Video-Steuerung & Neues Szenario 4a
 #        - Snapshot und Video-Aufnahme pro Szenario separat steuerbar
 #        - Hinweis: Video-Analyse benötigt aktivierte Video-Aufnahme
@@ -30,12 +34,6 @@ blueprint:
 #        - Modul 1: Parallele Ausführung von Snapshot und Video-Aufnahme
 #        - Modul 5: Umstellung auf llmvision.video_analyzer
 #        - Unterschiedliche Töne/Lautstärke für normal vs. critical Push
-# 3.4.4: Update-Push mit Wiederholungen (count + for_each)
-# 3.4.3: TTS Condition Fix & Update-Push Wiederherstellung
-# 3.4.0: Alarm-Wiederholungen Umstrukturierung & TTS Fix
-# 3.3.0: Überarbeitete Benachrichtigungstexte und Debug-Schalter
-# 3.1.0: Stream-Analyse Retry bei "Unklar"
-# 3.0.0: Kompletter Umbau des Detection-Systems
 
   input:
     # =======================
@@ -2168,6 +2166,11 @@ action:
         then:
           - variables:
               _video_result_temp: "Unklar"
+          
+          # NEU in 3.6.1: Wartezeit = Video-Dauer + Lookback + 2s Puffer
+          - delay: 
+              seconds: "{{ video_duration + video_lookback + 2 }}"
+          
           - repeat:
               while:
                 - condition: template
