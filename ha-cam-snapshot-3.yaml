@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.6.2"
+  name: "Camera Event Notification 3.6.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -20,14 +20,12 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.6.3: Vereinfachung der Video-Analyse
+#        - Video-Prompt auf die 3 Kern-Kategorien reduziert (no-person, probably, definitely)
+#        - Erhöht die Entscheidungssicherheit der AI für Sicherheitszwecke
+#        - Logik und Mapping an die vereinfachten Keys angepasst
 # 3.6.2: AI-Prompt Standardisierung (English)
-#        - Video-Prompt auf Englisch umgestellt (bessere AI-Performance)
-#        - Interne Logik nutzt nun technische Keys (person-detected etc.)
-#        - Deutsche Ausgabe erfolgt via Mapping-Tabelle
 # 3.6.1: Fix Race Condition (Video-File)
-#        - Dynamische Wartezeit vor Video-Analyse hinzugefügt
-#        - Berechnung: Video-Dauer + Rückblick + 2 Sekunden Puffer
-# 3.6.0: Separate Snapshot/Video-Steuerung & Neues Szenario 4a
 
   input:
     # =======================
@@ -269,20 +267,22 @@ blueprint:
 
         video_prompt:
           name: "Video-Analyse Prompt"
+          description: "Reduziert auf die 3 Kern-Kategorien für maximale Stabilität"
           default: >
             CONTEXT: Security camera video recording from private property.
             Current time: {{ now().strftime('%H:%M') }}
             
-            TASK: Identify the primary subject of movement/activity.
+            TASK: Analyze the video sequence for HUMAN presence.
             
-            RESPONSE OPTIONS (choose most relevant):
-            - "person-detected" = Single person visible
-            - "multiple-people" = Multiple people visible
-            - "vehicle-detected" = Vehicle detected
-            - "animal-detected" = Animal detected
-            - "person-vehicle" = Both person and vehicle
-            - "unclear" = Movement detected but subject unclear
-            - "no-motion" = No significant movement
+            RESPONSE OPTIONS (choose EXACTLY one):
+            - "definitely-person" = Clear human presence (single or multiple)
+            - "probably-person" = Unclear, possibly a person, bad lighting
+            - "no-person" = No human visible (includes pets, vehicles, wind, no motion)
+            
+            INSTRUCTIONS:
+            - If you see a vehicle BUT NO PERSON inside/outside: choose "no-person".
+            - If you see an animal BUT NO PERSON: choose "no-person".
+            - Only choose "definitely-person" if you are sure it is a human.
             
             RESPONSE: One label only from the list above.
           selector:
@@ -1526,15 +1526,11 @@ variables:
   response:
     response_text: ""
   
-  # NEU in 3.6.2: Mapping für deutsche Benachrichtigungen
+  # NEU in 3.6.3: Mapping reduziert auf die 3 Kern-Zustände
   video_result_map:
-    person-detected: "Person erkannt"
-    multiple-people: "Mehrere Personen"
-    vehicle-detected: "Fahrzeug erkannt"
-    animal-detected: "Tier erkannt"
-    person-vehicle: "Person und Fahrzeug"
-    unclear: "Unklar"
-    no-motion: "Keine Bewegung"
+    definitely-person: "Person erkannt"
+    probably-person: "Möglicherweise Person"
+    no-person: "Keine Person"
 
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
@@ -2169,7 +2165,7 @@ action:
             value_template: "{{ video_should_run and camera_entity_snapshot != '' }}"
         then:
           - variables:
-              _video_result_temp: "unclear"
+              _video_result_temp: "probably-person"
           
           # 3.6.1: Wartezeit = Video-Dauer + Lookback + 2s Puffer
           - delay: 
@@ -2178,7 +2174,7 @@ action:
           - repeat:
               while:
                 - condition: template
-                  value_template: "{{ _video_result_temp == 'unclear' and repeat.index <= video_max_retries }}"
+                  value_template: "{{ _video_result_temp == 'probably-person' and repeat.index <= video_max_retries }}"
               sequence:
                 - if:
                     - condition: template
@@ -2191,7 +2187,7 @@ action:
                     provider: !input provider
                     model: !input model
                     message: >
-                      {% if repeat.index > 1 %}IMPORTANT: Avoid "unclear". Make your best assessment.
+                      {% if repeat.index > 1 %}IMPORTANT: Avoid "probably-person". Make your best assessment.
                       
                       {% endif %}{{ video_prompt }}
                     include_filename: true
@@ -2206,16 +2202,16 @@ action:
           - variables:
               video_status: >
                 {% if _video_result_temp == '' %}no_response
-                {% elif _video_result_temp == 'unclear' %}still_unclear
+                {% elif _video_result_temp == 'probably-person' %}still_unclear
                 {% else %}success{% endif %}
               video_result: "{{ _video_result_temp }}"
               verified_detection: >
-                {% if _video_result_temp in ['person-detected', 'multiple-people', 'person-vehicle'] %}definitely-person
-                {% else %}{{ detection_level }}{% endif %}
+                {% if _video_result_temp == 'definitely-person' %}definitely-person
+                {% elif _video_result_temp == 'no-person' %}no-person
+                {% else %}probably-person{% endif %}
               final_interruption_level: >
-                {% set _v = 'definitely-person' if _video_result_temp in ['person-detected', 'multiple-people', 'person-vehicle'] else detection_level %}
-                {% if _v == 'definitely-person' %}{{ current_level_definitely_person }}
-                {% elif _v == 'probably-person' %}{{ current_level_probably_person }}
+                {% if verified_detection == 'definitely-person' %}{{ current_level_definitely_person }}
+                {% elif verified_detection == 'probably-person' %}{{ current_level_probably_person }}
                 {% else %}{{ current_level_no_person }}{% endif %}
       
       # 6) TV notifications
