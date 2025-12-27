@@ -1,12 +1,12 @@
 blueprint:
-  name: "Camera Event Notification 3.5.0"
+  name: "Camera Event Notification 3.6.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation mit Retry bei "Unklar",
-    dynamische Level-Anpassung, 6 individuell konfigurierbare Szenarien, 
+    dynamische Level-Anpassung, 7 individuell konfigurierbare Szenarien (inkl. 4a), 
     LG WebOS TV Support, TTS-Ansagen bei kritischen Events.
     Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
     
@@ -20,23 +20,21 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.6.0: Separate Snapshot/Video-Steuerung & Neues Szenario 4a
+#        - Snapshot und Video-Aufnahme pro Szenario separat steuerbar
+#        - Hinweis: Video-Analyse benötigt aktivierte Video-Aufnahme
+#        - Neues Szenario 4a: Abwesend, Alarmanlage extern scharf, tagsüber
+#        - Szenario 4 umbenannt: Abwesend, Alarmanlage extern scharf, spät abends
+#        - Insgesamt 7 Szenarien (1, 2, 3, 4, 4a, 5, 6)
 # 3.5.0: Video-Analyse & Parallele Aufnahme
-#        - Modul 1: Parallele Ausführung von Snapshot und Video-Aufnahme (camera.record)
-#        - Neue Inputs: video_duration, video_lookback (konfigurierbare Video-Einstellungen)
-#        - Modul 5: Umstellung von llmvision.stream_analyzer auf llmvision.video_analyzer
-#        - Video-Analyse greift auf aufgenommenes Video aus Modul 1 zu
-#        - AI-Einstellungen: Separate Parameter für Wichtigkeits-Analyse und Video-Analyse
-#        - Neue Inputs: Unterschiedliche Töne/Lautstärke für normal vs. critical Push
-#        - notification_sound_critical, notification_volume_critical für kritische Events
-#        - Gilt für Initial-Push (Modul 4) und Update-Push (Modul 8)
-#        - Umstrukturierte Blueprint-Sektionen für bessere Übersichtlichkeit
+#        - Modul 1: Parallele Ausführung von Snapshot und Video-Aufnahme
+#        - Modul 5: Umstellung auf llmvision.video_analyzer
+#        - Unterschiedliche Töne/Lautstärke für normal vs. critical Push
 # 3.4.4: Update-Push mit Wiederholungen (count + for_each)
 # 3.4.3: TTS Condition Fix & Update-Push Wiederherstellung
 # 3.4.0: Alarm-Wiederholungen Umstrukturierung & TTS Fix
-# 3.3.1: Fix für Template-Warnungen in HA 2025.12
 # 3.3.0: Überarbeitete Benachrichtigungstexte und Debug-Schalter
 # 3.1.0: Stream-Analyse Retry bei "Unklar"
-# 3.0.1: Hotfix - Action-Buttons zum Update-Push hinzugefügt
 # 3.0.0: Kompletter Umbau des Detection-Systems
 
   input:
@@ -174,7 +172,7 @@ blueprint:
         importance_target_width:
           name: "Bild-Breite (Pixel)"
           description: "Breite für die Bildanalyse"
-          default: 1600
+          default: 1280
           selector:
             number:
               min: 512
@@ -187,7 +185,7 @@ blueprint:
           selector:
             number:
               min: 1
-              max: 10000
+              max: 15000
 
         importance_max_retries:
           name: "Max Versuche"
@@ -238,7 +236,7 @@ blueprint:
         video_target_width:
           name: "Bild-Breite (Pixel)"
           description: "Breite für die Video-Frame-Analyse"
-          default: 1600
+          default: 1280
           selector:
             number:
               min: 512
@@ -256,7 +254,7 @@ blueprint:
         video_max_tokens:
           name: "Max Tokens"
           description: "Maximale Anzahl der Antwort-Tokens"
-          default: 4000
+          default: 5000
           selector:
             number:
               min: 1
@@ -621,6 +619,8 @@ blueprint:
                   value: "3"
                 - label: "Szenario 4"
                   value: "4"
+                - label: "Szenario 4a"
+                  value: "4a"
                 - label: "Szenario 5"
                   value: "5"
                 - label: "Szenario 6"
@@ -642,7 +642,15 @@ blueprint:
             condition:
 
         s1_snapshot:
-          name: "Snapshot & Video erstellen"
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
+          default: true
+          selector:
+            boolean:
+
+        s1_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -695,6 +703,7 @@ blueprint:
 
         s1_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "probably-person"
           selector:
             select:
@@ -736,6 +745,7 @@ blueprint:
 
         s1_update_push:
           name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: true
           selector:
             boolean:
@@ -756,7 +766,15 @@ blueprint:
             condition:
 
         s2_snapshot:
-          name: "Snapshot & Video erstellen"
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
+          default: true
+          selector:
+            boolean:
+
+        s2_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -809,6 +827,7 @@ blueprint:
 
         s2_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "definitely-person"
           selector:
             select:
@@ -850,6 +869,7 @@ blueprint:
 
         s2_update_push:
           name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: false
           selector:
             boolean:
@@ -870,8 +890,16 @@ blueprint:
             condition:
 
         s3_snapshot:
-          name: "Snapshot & Video erstellen"
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
+          selector:
+            boolean:
+
+        s3_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
+          default: false
           selector:
             boolean:
 
@@ -923,6 +951,7 @@ blueprint:
 
         s3_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "never"
           selector:
             select:
@@ -964,6 +993,7 @@ blueprint:
 
         s3_update_push:
           name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: false
           selector:
             boolean:
@@ -972,8 +1002,8 @@ blueprint:
     # SZENARIO 4
     # =======================
     scenario_4_section:
-      name: "Szenario 4: Abwesend, Alarmanlage extern scharf"
-      description: "Maximale Sicherheit bei Abwesenheit"
+      name: "Szenario 4: Abwesend, Alarmanlage extern scharf, spät abends"
+      description: "Maximale Sicherheit bei Abwesenheit am Abend"
       icon: mdi:shield-lock
       collapsed: true
       input:
@@ -984,7 +1014,15 @@ blueprint:
             condition:
 
         s4_snapshot:
-          name: "Snapshot & Video erstellen"
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
+          default: true
+          selector:
+            boolean:
+
+        s4_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1037,6 +1075,7 @@ blueprint:
 
         s4_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "no-person"
           selector:
             select:
@@ -1084,6 +1123,137 @@ blueprint:
 
         s4_update_push:
           name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 4a
+    # =======================
+    scenario_4a_section:
+      name: "Szenario 4a: Abwesend, Alarmanlage extern scharf, tagsüber"
+      description: "Maximale Sicherheit bei Abwesenheit tagsüber"
+      icon: mdi:shield-sun
+      collapsed: true
+      input:
+        s4a_conditions:
+          name: "Aktivierungsbedingungen"
+          default: []
+          selector:
+            condition:
+
+        s4a_snapshot:
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
+          default: true
+          selector:
+            boolean:
+
+        s4a_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
+          default: true
+          selector:
+            boolean:
+
+        s4a_importance_check:
+          name: "Wichtigkeitsanalyse"
+          default: true
+          selector:
+            boolean:
+
+        s4a_level_no_person:
+          name: "Level bei: Keine Person"
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          default: "critical"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_gate_enable:
+          name: "Gate aktivieren"
+          default: true
+          selector:
+            boolean:
+
+        s4a_gate_threshold:
+          name: "Gate Schwellwert"
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_mobile_push:
+          name: "Mobile Push"
+          default: true
+          selector:
+            boolean:
+
+        s4a_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s4a_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s4a_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          default: false
+          selector:
+            boolean:
+
+        s4a_tts_conditions:
+          name: "Zusätzliche TTS-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s4a_alarm_mode:
+          name: "Alarm-Wiederholungen"
+          default: true
+          selector:
+            boolean:
+
+        s4a_alarm_conditions:
+          name: "Zusätzliche Alarm-Bedingungen"
+          default: []
+          selector:
+            condition:
+
+        s4a_update_push:
+          name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: true
           selector:
             boolean:
@@ -1104,7 +1274,15 @@ blueprint:
             condition:
 
         s5_snapshot:
-          name: "Snapshot & Video erstellen"
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
+          default: true
+          selector:
+            boolean:
+
+        s5_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1157,6 +1335,7 @@ blueprint:
 
         s5_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "probably-person"
           selector:
             select:
@@ -1198,6 +1377,7 @@ blueprint:
 
         s5_update_push:
           name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: false
           selector:
             boolean:
@@ -1218,7 +1398,15 @@ blueprint:
             condition:
 
         s6_snapshot:
-          name: "Snapshot & Video erstellen"
+          name: "Snapshot erstellen"
+          description: "Erstellt ein Standbild bei Bewegungserkennung"
+          default: true
+          selector:
+            boolean:
+
+        s6_video:
+          name: "Video aufnehmen"
+          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1271,6 +1459,7 @@ blueprint:
 
         s6_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "no-person"
           selector:
             select:
@@ -1312,6 +1501,7 @@ blueprint:
 
         s6_update_push:
           name: "Update-Push nach Video-Analyse"
+          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: true
           selector:
             boolean:
@@ -1417,6 +1607,7 @@ variables:
   
   s1_conditions: !input s1_conditions
   s1_snapshot: !input s1_snapshot
+  s1_video: !input s1_video
   s1_importance_check: !input s1_importance_check
   s1_level_no_person: !input s1_level_no_person
   s1_level_probably_person: !input s1_level_probably_person
@@ -1433,6 +1624,7 @@ variables:
   
   s2_conditions: !input s2_conditions
   s2_snapshot: !input s2_snapshot
+  s2_video: !input s2_video
   s2_importance_check: !input s2_importance_check
   s2_level_no_person: !input s2_level_no_person
   s2_level_probably_person: !input s2_level_probably_person
@@ -1449,6 +1641,7 @@ variables:
   
   s3_conditions: !input s3_conditions
   s3_snapshot: !input s3_snapshot
+  s3_video: !input s3_video
   s3_importance_check: !input s3_importance_check
   s3_level_no_person: !input s3_level_no_person
   s3_level_probably_person: !input s3_level_probably_person
@@ -1465,6 +1658,7 @@ variables:
   
   s4_conditions: !input s4_conditions
   s4_snapshot: !input s4_snapshot
+  s4_video: !input s4_video
   s4_importance_check: !input s4_importance_check
   s4_level_no_person: !input s4_level_no_person
   s4_level_probably_person: !input s4_level_probably_person
@@ -1480,8 +1674,27 @@ variables:
   s4_alarm_conditions: !input s4_alarm_conditions
   s4_update_push: !input s4_update_push
   
+  s4a_conditions: !input s4a_conditions
+  s4a_snapshot: !input s4a_snapshot
+  s4a_video: !input s4a_video
+  s4a_importance_check: !input s4a_importance_check
+  s4a_level_no_person: !input s4a_level_no_person
+  s4a_level_probably_person: !input s4a_level_probably_person
+  s4a_level_definitely_person: !input s4a_level_definitely_person
+  s4a_gate_enable: !input s4a_gate_enable
+  s4a_gate_threshold: !input s4a_gate_threshold
+  s4a_mobile_push: !input s4a_mobile_push
+  s4a_video_min_detection: !input s4a_video_min_detection
+  s4a_tv_notify: !input s4a_tv_notify
+  s4a_tts_enable: !input s4a_tts_enable
+  s4a_tts_conditions: !input s4a_tts_conditions
+  s4a_alarm_mode: !input s4a_alarm_mode
+  s4a_alarm_conditions: !input s4a_alarm_conditions
+  s4a_update_push: !input s4a_update_push
+  
   s5_conditions: !input s5_conditions
   s5_snapshot: !input s5_snapshot
+  s5_video: !input s5_video
   s5_importance_check: !input s5_importance_check
   s5_level_no_person: !input s5_level_no_person
   s5_level_probably_person: !input s5_level_probably_person
@@ -1498,6 +1711,7 @@ variables:
   
   s6_conditions: !input s6_conditions
   s6_snapshot: !input s6_snapshot
+  s6_video: !input s6_video
   s6_importance_check: !input s6_importance_check
   s6_level_no_person: !input s6_level_no_person
   s6_level_probably_person: !input s6_level_probably_person
@@ -1543,7 +1757,6 @@ variables:
   
   video_filename: "{{ filename_base ~ '.mp4' }}"
   video_file_path: "{{ snapshot_dir_fs_final ~ '/' ~ video_filename }}"
-  video_access_file_path: "{{ snapshot_dir_web_final ~ '/' ~ video_filename }}"
   
   label: "Bewegung erkannt"
   camera: "{{ camera_friendly }}"
@@ -1604,6 +1817,10 @@ action:
         sequence:
           - variables:
               active_scenario: "4"
+      - conditions: !input s4a_conditions
+        sequence:
+          - variables:
+              active_scenario: "4a"
       - conditions: !input s5_conditions
         sequence:
           - variables:
@@ -1623,14 +1840,25 @@ action:
         {% elif active_scenario == '2' %}{{ s2_snapshot }}
         {% elif active_scenario == '3' %}{{ s3_snapshot }}
         {% elif active_scenario == '4' %}{{ s4_snapshot }}
+        {% elif active_scenario == '4a' %}{{ s4a_snapshot }}
         {% elif active_scenario == '5' %}{{ s5_snapshot }}
         {% elif active_scenario == '6' %}{{ s6_snapshot }}
+        {% else %}true{% endif %}
+      current_video: >
+        {% if active_scenario == '1' %}{{ s1_video }}
+        {% elif active_scenario == '2' %}{{ s2_video }}
+        {% elif active_scenario == '3' %}{{ s3_video }}
+        {% elif active_scenario == '4' %}{{ s4_video }}
+        {% elif active_scenario == '4a' %}{{ s4a_video }}
+        {% elif active_scenario == '5' %}{{ s5_video }}
+        {% elif active_scenario == '6' %}{{ s6_video }}
         {% else %}true{% endif %}
       current_importance: >
         {% if active_scenario == '1' %}{{ s1_importance_check }}
         {% elif active_scenario == '2' %}{{ s2_importance_check }}
         {% elif active_scenario == '3' %}{{ s3_importance_check }}
         {% elif active_scenario == '4' %}{{ s4_importance_check }}
+        {% elif active_scenario == '4a' %}{{ s4a_importance_check }}
         {% elif active_scenario == '5' %}{{ s5_importance_check }}
         {% elif active_scenario == '6' %}{{ s6_importance_check }}
         {% else %}false{% endif %}
@@ -1639,6 +1867,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_level_no_person }}
         {% elif active_scenario == '3' %}{{ s3_level_no_person }}
         {% elif active_scenario == '4' %}{{ s4_level_no_person }}
+        {% elif active_scenario == '4a' %}{{ s4a_level_no_person }}
         {% elif active_scenario == '5' %}{{ s5_level_no_person }}
         {% elif active_scenario == '6' %}{{ s6_level_no_person }}
         {% else %}passive{% endif %}
@@ -1647,6 +1876,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_level_probably_person }}
         {% elif active_scenario == '3' %}{{ s3_level_probably_person }}
         {% elif active_scenario == '4' %}{{ s4_level_probably_person }}
+        {% elif active_scenario == '4a' %}{{ s4a_level_probably_person }}
         {% elif active_scenario == '5' %}{{ s5_level_probably_person }}
         {% elif active_scenario == '6' %}{{ s6_level_probably_person }}
         {% else %}active{% endif %}
@@ -1655,6 +1885,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_level_definitely_person }}
         {% elif active_scenario == '3' %}{{ s3_level_definitely_person }}
         {% elif active_scenario == '4' %}{{ s4_level_definitely_person }}
+        {% elif active_scenario == '4a' %}{{ s4a_level_definitely_person }}
         {% elif active_scenario == '5' %}{{ s5_level_definitely_person }}
         {% elif active_scenario == '6' %}{{ s6_level_definitely_person }}
         {% else %}critical{% endif %}
@@ -1663,6 +1894,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_gate_enable }}
         {% elif active_scenario == '3' %}{{ s3_gate_enable }}
         {% elif active_scenario == '4' %}{{ s4_gate_enable }}
+        {% elif active_scenario == '4a' %}{{ s4a_gate_enable }}
         {% elif active_scenario == '5' %}{{ s5_gate_enable }}
         {% elif active_scenario == '6' %}{{ s6_gate_enable }}
         {% else %}false{% endif %}
@@ -1671,6 +1903,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_gate_threshold }}
         {% elif active_scenario == '3' %}{{ s3_gate_threshold }}
         {% elif active_scenario == '4' %}{{ s4_gate_threshold }}
+        {% elif active_scenario == '4a' %}{{ s4a_gate_threshold }}
         {% elif active_scenario == '5' %}{{ s5_gate_threshold }}
         {% elif active_scenario == '6' %}{{ s6_gate_threshold }}
         {% else %}active{% endif %}
@@ -1679,6 +1912,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_mobile_push }}
         {% elif active_scenario == '3' %}{{ s3_mobile_push }}
         {% elif active_scenario == '4' %}{{ s4_mobile_push }}
+        {% elif active_scenario == '4a' %}{{ s4a_mobile_push }}
         {% elif active_scenario == '5' %}{{ s5_mobile_push }}
         {% elif active_scenario == '6' %}{{ s6_mobile_push }}
         {% else %}true{% endif %}
@@ -1687,6 +1921,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_video_min_detection }}
         {% elif active_scenario == '3' %}{{ s3_video_min_detection }}
         {% elif active_scenario == '4' %}{{ s4_video_min_detection }}
+        {% elif active_scenario == '4a' %}{{ s4a_video_min_detection }}
         {% elif active_scenario == '5' %}{{ s5_video_min_detection }}
         {% elif active_scenario == '6' %}{{ s6_video_min_detection }}
         {% else %}never{% endif %}
@@ -1695,6 +1930,7 @@ action:
         {% elif active_scenario == '2' %}{{ s2_tv_notify }}
         {% elif active_scenario == '3' %}{{ s3_tv_notify }}
         {% elif active_scenario == '4' %}{{ s4_tv_notify }}
+        {% elif active_scenario == '4a' %}{{ s4a_tv_notify }}
         {% elif active_scenario == '5' %}{{ s5_tv_notify }}
         {% elif active_scenario == '6' %}{{ s6_tv_notify }}
         {% else %}false{% endif %}
@@ -1703,33 +1939,29 @@ action:
         {% elif active_scenario == '2' %}{{ s2_tts_enable }}
         {% elif active_scenario == '3' %}{{ s3_tts_enable }}
         {% elif active_scenario == '4' %}{{ s4_tts_enable }}
+        {% elif active_scenario == '4a' %}{{ s4a_tts_enable }}
         {% elif active_scenario == '5' %}{{ s5_tts_enable }}
         {% elif active_scenario == '6' %}{{ s6_tts_enable }}
         {% else %}false{% endif %}
-      current_tts_conditions: >
-        {% if active_scenario == '1' %}{{ s1_tts_conditions }}
-        {% elif active_scenario == '2' %}{{ s2_tts_conditions }}
-        {% elif active_scenario == '3' %}{{ s3_tts_conditions }}
-        {% elif active_scenario == '4' %}{{ s4_tts_conditions }}
-        {% elif active_scenario == '5' %}{{ s5_tts_conditions }}
-        {% elif active_scenario == '6' %}{{ s6_tts_conditions }}
-        {% else %}[]{% endif %}
       current_alarm_mode: >
         {% if active_scenario == '1' %}{{ s1_alarm_mode }}
         {% elif active_scenario == '2' %}{{ s2_alarm_mode }}
         {% elif active_scenario == '3' %}{{ s3_alarm_mode }}
         {% elif active_scenario == '4' %}{{ s4_alarm_mode }}
+        {% elif active_scenario == '4a' %}{{ s4a_alarm_mode }}
         {% elif active_scenario == '5' %}{{ s5_alarm_mode }}
         {% elif active_scenario == '6' %}{{ s6_alarm_mode }}
         {% else %}false{% endif %}
       current_alarm_conditions: >
         {% if active_scenario == '4' %}{{ s4_alarm_conditions | default([]) }}
+        {% elif active_scenario == '4a' %}{{ s4a_alarm_conditions | default([]) }}
         {% else %}[]{% endif %}
       current_update_push: >
         {% if active_scenario == '1' %}{{ s1_update_push }}
         {% elif active_scenario == '2' %}{{ s2_update_push }}
         {% elif active_scenario == '3' %}{{ s3_update_push }}
         {% elif active_scenario == '4' %}{{ s4_update_push }}
+        {% elif active_scenario == '4a' %}{{ s4a_update_push }}
         {% elif active_scenario == '5' %}{{ s5_update_push }}
         {% elif active_scenario == '6' %}{{ s6_update_push }}
         {% else %}false{% endif %}
@@ -1741,17 +1973,38 @@ action:
           {{ not this.attributes.last_triggered
              or (now() - this.attributes.last_triggered).seconds > delay_notification }}
     then:
-      # 1) Create snapshot AND video in PARALLEL
-      - if:
-          - condition: template
-            value_template: "{{ current_snapshot and camera_entity_snapshot != '' }}"
-        then:
-          - parallel:
+      # 1) Create snapshot and/or video
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ current_snapshot and current_video and camera_entity_snapshot != '' }}"
+            sequence:
+              - parallel:
+                  - service: camera.snapshot
+                    target:
+                      entity_id: "{{ camera_entity_snapshot }}"
+                    data:
+                      filename: "{{ file_path }}"
+                  - service: camera.record
+                    target:
+                      entity_id: "{{ camera_entity_snapshot }}"
+                    data:
+                      filename: "{{ video_file_path }}"
+                      duration: "{{ video_duration }}"
+                      lookback: "{{ video_lookback }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ current_snapshot and not current_video and camera_entity_snapshot != '' }}"
+            sequence:
               - service: camera.snapshot
                 target:
                   entity_id: "{{ camera_entity_snapshot }}"
                 data:
                   filename: "{{ file_path }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ not current_snapshot and current_video and camera_entity_snapshot != '' }}"
+            sequence:
               - service: camera.record
                 target:
                   entity_id: "{{ camera_entity_snapshot }}"
@@ -1774,43 +2027,33 @@ action:
               while:
                 - condition: template
                   value_template: >
-                    {% set valid_responses = ['no-person', 'probably-person', 'definitely-person'] %}
-                    {% set response_lower = _importance_result_temp | lower %}
-                    {% set is_valid = valid_responses | select('in', response_lower) | list | length > 0 %}
-                    {{ not is_valid and repeat.index <= importance_max_retries }}
+                    {% set valid = ['no-person', 'probably-person', 'definitely-person'] %}
+                    {% set r = _importance_result_temp | lower %}
+                    {% set ok = valid | select('in', r) | list | length > 0 %}
+                    {{ not ok and repeat.index <= importance_max_retries }}
               sequence:
                 - if:
                     - condition: template
                       value_template: "{{ repeat.index > 1 }}"
                   then:
                     - delay: !input importance_retry_delay
-                
                 - action: llmvision.image_analyzer
                   data:
                     image_file: "{{ file_path }}"
                     provider: !input provider
                     model: !input model
                     message: >
-                      {% if repeat.index > 1 %}
-                      IMPORTANT: You MUST respond with EXACTLY one of these three labels:
-                      - "no-person"
-                      - "probably-person"
-                      - "definitely-person"
+                      {% if repeat.index > 1 %}IMPORTANT: Respond with EXACTLY one label: no-person, probably-person, or definitely-person. Nothing else.
                       
-                      Do not add any other text. Just the label.
-                      
-                      {% endif %}
-                      {{ importance_prompt }}
+                      {% endif %}{{ importance_prompt }}
                     include_filename: true
                     target_width: "{{ importance_target_width }}"
                     max_tokens: "{{ importance_max_tokens }}"
                     remember: true
                   response_variable: _importance_response
-                
                 - variables:
                     _importance_result_temp: "{{ _importance_response.response_text | default('') }}"
                     importance_attempts_used: "{{ repeat.index }}"
-          
           - variables:
               importance_status: >
                 {% if _importance_result_temp == '' %}no_response
@@ -1823,7 +2066,7 @@ action:
       - variables:
           detection_level: >
             {% if importance_status == 'disabled' %}none
-            {% elif importance_status == 'no_response' or importance_status == 'invalid_response' %}probably-person
+            {% elif importance_status in ['no_response', 'invalid_response'] %}probably-person
             {% else %}
               {% set t = _importance_result_temp | lower %}
               {% if 'definitely-person' in t %}definitely-person
@@ -1834,7 +2077,6 @@ action:
           initial_interruption_level: >
             {% if detection_level == 'definitely-person' %}{{ current_level_definitely_person }}
             {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
-            {% elif detection_level == 'none' %}{{ current_level_no_person }}
             {% else %}{{ current_level_no_person }}{% endif %}
       
       # 3) Gate check
@@ -1842,10 +2084,9 @@ action:
           - condition: template
             value_template: "{{ current_gate_enable }}"
           - condition: template
-            value_template: >
-              {{ (level_rank[initial_interruption_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}
+            value_template: "{{ (level_rank[initial_interruption_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}"
         then:
-          - stop: "Gate: Level '{{ initial_interruption_level }}' < Threshold '{{ current_gate_threshold }}'"
+          - stop: "Gate: Level {{ initial_interruption_level }} < Threshold {{ current_gate_threshold }}"
       
       # 4) Mobile push notification
       - if:
@@ -1860,14 +2101,14 @@ action:
                     title: "{{ camera }} - {{ label }} {{ notification_time }}"
                     message: >
                       {% if importance_status == 'disabled' %}Bewegung erkannt
-                      {% elif importance_status == 'no_response' %}Bewegung erkannt - Analyse konnte nicht durchgeführt werden
+                      {% elif importance_status == 'no_response' %}Bewegung erkannt - Analyse nicht möglich
                       {% elif importance_status == 'invalid_response' %}Bewegung erkannt - Analyse fehlerhaft
                       {% elif detection_level == 'definitely-person' %}Person erkannt
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
                       {% else %}Bewegung erkannt - keine Person{% endif %}
                       {% if debug_info_enabled %}
                       
-                      (S{{ active_scenario }} | {{ detection_level }} | {{ initial_interruption_level }}{% if importance_attempts_used > 1 %} | {{ importance_attempts_used }} Versuche{% endif %})
+                      (S{{ active_scenario }} | {{ detection_level }} | {{ initial_interruption_level }}{% if importance_attempts_used > 1 %} | {{ importance_attempts_used }}x{% endif %})
                       {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
@@ -1905,10 +2146,11 @@ action:
                           volume: "{{ notification_volume_critical if initial_interruption_level == 'critical' else notification_volume }}"
                           critical: "{{ initial_interruption_level == 'critical' }}"
       
-      # 5) Video analysis
+      # 5) Video analysis (only if video was recorded)
       - variables:
           video_should_run: >
-            {% if current_video_min_detection == 'always' %}true
+            {% if not current_video %}false
+            {% elif current_video_min_detection == 'always' %}true
             {% elif current_video_min_detection == 'never' %}false
             {% elif current_video_min_detection == 'no-person' %}true
             {% elif current_video_min_detection == 'probably-person' and detection_rank[detection_level] >= 1 %}true
@@ -1926,7 +2168,6 @@ action:
         then:
           - variables:
               _video_result_temp: "Unklar"
-          
           - repeat:
               while:
                 - condition: template
@@ -1937,31 +2178,24 @@ action:
                       value_template: "{{ repeat.index > 1 }}"
                   then:
                     - delay: !input video_retry_delay
-                
                 - action: llmvision.video_analyzer
                   data:
                     video_file: "{{ video_file_path }}"
                     provider: !input provider
                     model: !input model
                     message: >
-                      {% if repeat.index > 1 %}
-                      IMPORTANT: Avoid "Unklar" if possible. Make your best assessment.
-                      If you detect any human movement pattern, classify as "Person erkannt".
-                      Only use "Unklar" as absolute last resort.
+                      {% if repeat.index > 1 %}IMPORTANT: Avoid "Unklar". Make your best assessment.
                       
-                      {% endif %}
-                      {{ video_prompt }}
+                      {% endif %}{{ video_prompt }}
                     include_filename: true
                     max_frames: "{{ video_max_frames }}"
                     target_width: "{{ video_target_width }}"
                     max_tokens: "{{ video_max_tokens }}"
                     remember: true
                   response_variable: _response
-                
                 - variables:
                     _video_result_temp: "{{ _response.response_text | default('') }}"
                     video_attempts_used: "{{ repeat.index }}"
-          
           - variables:
               video_status: >
                 {% if _video_result_temp == '' %}no_response
@@ -1989,8 +2223,6 @@ action:
               title: "{{ lg_tv_message_title }}"
               message: >
                 {% if video_status == 'success' and video_result %}{{ camera_friendly }}: {{ video_result }}
-                {% elif importance_status == 'disabled' %}{{ camera_friendly }}: Bewegung erkannt
-                {% elif importance_status in ['no_response', 'invalid_response'] %}{{ camera_friendly }}: Bewegung (Analyse fehlgeschlagen)
                 {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
                 {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
                 {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
@@ -2009,8 +2241,6 @@ action:
                     title: "{{ other_notify_title }}"
                     message: >
                       {% if video_status == 'success' and video_result %}{{ camera_friendly }}: {{ video_result }}
-                      {% elif importance_status == 'disabled' %}{{ camera_friendly }}: Bewegung erkannt
-                      {% elif importance_status in ['no_response', 'invalid_response'] %}{{ camera_friendly }}: Bewegung (Analyse fehlgeschlagen)
                       {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
                       {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
                       {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
@@ -2050,7 +2280,6 @@ action:
                           media_player_entity_id: "{{ repeat.item }}"
                           message: >
                             {% if video_status == 'success' and video_result %}Achtung! {{ camera_friendly }}: {{ video_result }}
-                            {% elif importance_status in ['no_response', 'invalid_response'] %}Achtung! {{ camera_friendly }}: Bewegung erkannt
                             {% elif detection_level == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
                             {% elif detection_level == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
                             {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
@@ -2075,13 +2304,13 @@ action:
                         data:
                           title: "{{ camera }} - Update {{ notification_time }}"
                           message: >
-                            {% if video_status == 'no_response' %}Video-Analyse konnte nicht durchgeführt werden
+                            {% if video_status == 'no_response' %}Video-Analyse nicht möglich
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
                             {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result }}
                             {% else %}{{ video_result }}{% endif %}
                             {% if debug_info_enabled %}
                             
-                            (S{{ active_scenario }} | {{ detection_level }} → {{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }} Versuche)
+                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
                             {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
