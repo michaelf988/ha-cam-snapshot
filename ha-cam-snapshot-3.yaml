@@ -4,7 +4,7 @@ blueprint:
   homeassistant:
     min_version: 2024.10.0
   description: >
-    Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
+    Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung. 
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
     
     VERSION 3.7.1:
