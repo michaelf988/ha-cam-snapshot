@@ -1969,9 +1969,8 @@ action:
                       {% elif detection_level == 'definitely-person' %}Person erkannt
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
                       {% else %}Bewegung erkannt - keine Person{% endif %}
-
                       {% if debug_info_enabled %}
-                        (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
+                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
                       {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
@@ -2184,9 +2183,8 @@ action:
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
                             {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
                             {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
-
                             {% if debug_info_enabled %}
-                              (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
+                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
                             {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
