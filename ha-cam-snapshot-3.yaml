@@ -7,8 +7,8 @@ blueprint:
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
     
-    HINWEIS: Version 3.7.0 ist ein Major-Release mit Fokus auf Stabilität und Vereinfachung.
-    Inputs für Debugging und granulare Zusatz-Conditions wurden entfernt.
+    HINWEIS: Version 3.7.0 (Restored Debugging).
+    Enthält wieder den Debug-Schalter für technische Details in den Notifications.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
@@ -16,15 +16,22 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
-# 3.7.0: Major Refactoring & Hardening
-#        - Entfernt: Debug-Infos, Zeit-im-Titel-Option (jetzt immer an), Global Cooldown Input
-#        - Entfernt: Pro-Szenario TTS-Conditions & Update-Push Boolean (jetzt automatisch)
-#        - Neu: Alarm-Loop nur noch ab Level "time-sensitive" oder höher
-#        - Safety: continue_on_error für alle Notifies/TTS
-#        - Fix: Type-Casting für Zeitberechnungen
-#        - Syntax: Umstellung auf 'action:' statt 'service:'
+# 3.7.0: Restored Debugging
+#        - Debug-Infos wiederhergestellt
+#        - Version auf 3.7.0 gesetzt
+#        - Variable Initialization für Debug-String gefixt
 
   input:
+    # =======================
+    # 0. DEBUGGING
+    # =======================
+    debug_info_enabled:
+      name: "🐞 Debug-Infos in Nachrichten anzeigen"
+      description: "Fügt technische Details (Szenario, Level, Versuche) an das Ende der Benachrichtigung an."
+      default: false
+      selector:
+        boolean: {}
+
     # =======================
     # 1. KAMERAS & SENSOREN
     # =======================
@@ -1357,6 +1364,9 @@ variables:
   response:
     response_text: ""
   
+  # --- Debug Variable ---
+  debug_info_enabled: !input debug_info_enabled
+
   video_result_map:
     definitely-person: "Person erkannt"
     probably-person: "Möglicherweise Person"
@@ -1880,6 +1890,12 @@ action:
             {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
             {% else %}{{ current_level_no_person }}{% endif %}
       
+      # FIX 3.7.0: Initialisiere Variablen für Debug-Info, damit Schritt 4 nicht crasht
+      - variables:
+          verified_detection: "{{ detection_level }}"
+          final_interruption_level: "{{ initial_interruption_level }}"
+          video_attempts_used: 0
+
       # 3) Gate check
       - if:
           - condition: template
@@ -1908,6 +1924,10 @@ action:
                       {% elif detection_level == 'definitely-person' %}Person erkannt
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
                       {% else %}Bewegung erkannt - keine Person{% endif %}
+
+                      {% if debug_info_enabled %}
+                        (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
+                      {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -1956,8 +1976,6 @@ action:
             {% else %}false{% endif %}
           video_status: "{% if video_should_run %}pending{% else %}disabled{% endif %}"
           video_result: ""
-          verified_detection: "{{ detection_level }}"
-          final_interruption_level: "{{ initial_interruption_level }}"
       
       - if:
           - condition: template
@@ -1997,6 +2015,8 @@ action:
                   response_variable: _response
                 - variables:
                     _video_result_temp: "{{ _response.response_text | default('') }}"
+                    # FIX 3.7.0: Variable für Debugging speichern
+                    video_attempts_used: "{{ repeat.index }}"
           - variables:
               video_status: >
                 {% if _video_result_temp == '' %}no_response
@@ -2119,6 +2139,10 @@ action:
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
                             {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
                             {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
+
+                            {% if debug_info_enabled %}
+                              (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
+                            {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
