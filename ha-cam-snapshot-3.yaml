@@ -1,18 +1,14 @@
 blueprint:
-  name: "Camera Event Notification 3.6.3"
+  name: "Camera Event Notification 3.7.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
-    Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation mit Retry bei "Unklar",
-    dynamische Level-Anpassung, 7 individuell konfigurierbare Szenarien (inkl. 4a), 
-    LG WebOS TV Support, TTS-Ansagen bei kritischen Events.
-    Automatische Szenario-Erkennung mit Helper-Override für Szenario 6.
+    Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
     
-    HINWEIS: Video-Aufnahmen verbrauchen mehr Speicherplatz als Snapshots.
-    Stellen Sie sicher, dass ausreichend Speicherplatz verfügbar ist und
-    ggf. eine automatische Bereinigung alter Aufnahmen eingerichtet ist.
+    HINWEIS: Version 3.7.0 ist ein Major-Release mit Fokus auf Stabilität und Vereinfachung.
+    Inputs für Debugging und granulare Zusatz-Conditions wurden entfernt.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
@@ -20,12 +16,13 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
-# 3.6.3: Vereinfachung der Video-Analyse
-#        - Video-Prompt auf die 3 Kern-Kategorien reduziert (no-person, probably, definitely)
-#        - Erhöht die Entscheidungssicherheit der AI für Sicherheitszwecke
-#        - Logik und Mapping an die vereinfachten Keys angepasst
-# 3.6.2: AI-Prompt Standardisierung (English)
-# 3.6.1: Fix Race Condition (Video-File)
+# 3.7.0: Major Refactoring & Hardening
+#        - Entfernt: Debug-Infos, Zeit-im-Titel-Option (jetzt immer an), Global Cooldown Input
+#        - Entfernt: Pro-Szenario TTS-Conditions & Update-Push Boolean (jetzt automatisch)
+#        - Neu: Alarm-Loop nur noch ab Level "time-sensitive" oder höher
+#        - Safety: continue_on_error für alle Notifies/TTS
+#        - Fix: Type-Casting für Zeitberechnungen
+#        - Syntax: Umstellung auf 'action:' statt 'service:'
 
   input:
     # =======================
@@ -68,7 +65,7 @@ blueprint:
     # =======================
     storage_section:
       name: "Speicherung"
-      description: "Dateipfade und Snapshot-Einstellungen. HINWEIS: Videos verbrauchen mehr Speicherplatz."
+      description: "Dateipfade und Snapshot-Einstellungen."
       icon: mdi:folder
       collapsed: true
       input:
@@ -126,7 +123,7 @@ blueprint:
     # =======================
     video_recording_section:
       name: "Video-Aufnahme Einstellungen"
-      description: "Parameter für die Video-Aufnahme (camera.record) - wird parallel zum Snapshot erstellt"
+      description: "Parameter für die Video-Aufnahme (camera.record)"
       icon: mdi:video
       collapsed: true
       input:
@@ -142,7 +139,7 @@ blueprint:
 
         video_lookback:
           name: "Video-Rückblick (Sekunden)"
-          description: "Wie viele Sekunden vor dem Trigger einbezogen werden (erfordert aktiven HLS-Stream)"
+          description: "Wie viele Sekunden vor dem Trigger einbezogen werden"
           default: 5
           selector:
             number:
@@ -155,13 +152,12 @@ blueprint:
     # =======================
     importance_analysis_section:
       name: "Wichtigkeits-Analyse (Snapshot)"
-      description: "Parameter für die initiale Bildanalyse zur Erkennung von Personen"
+      description: "Parameter für die initiale Bildanalyse"
       icon: mdi:image-search
       collapsed: true
       input:
         importance_target_width:
           name: "Bild-Breite (Pixel)"
-          description: "Breite für die Bildanalyse"
           default: 1280
           selector:
             number:
@@ -170,7 +166,6 @@ blueprint:
 
         importance_max_tokens:
           name: "Max Tokens"
-          description: "Maximale Anzahl der Antwort-Tokens"
           default: 4000
           selector:
             number:
@@ -179,7 +174,6 @@ blueprint:
 
         importance_max_retries:
           name: "Max Versuche"
-          description: "Wie oft bei ungültiger Antwort wiederholt werden soll (1 = kein Retry)"
           default: 2
           selector:
             number:
@@ -194,7 +188,6 @@ blueprint:
 
         importance_prompt:
           name: "Wichtigkeits-Analyse Prompt"
-          description: "Muss eines zurückgeben: no-person, probably-person, definitely-person"
           default: >
             CONTEXT: Security camera snapshot from a private property surveillance system.
             Current time: {{ now().strftime('%H:%M') }}
@@ -219,13 +212,12 @@ blueprint:
     # =======================
     video_analysis_section:
       name: "Video-Analyse (Verifikation)"
-      description: "Parameter für die Video-Analyse zur Verifikation der Ersterkennung"
+      description: "Parameter für die Video-Analyse"
       icon: mdi:video-check
       collapsed: true
       input:
         video_target_width:
           name: "Bild-Breite (Pixel)"
-          description: "Breite für die Video-Frame-Analyse"
           default: 1280
           selector:
             number:
@@ -234,7 +226,6 @@ blueprint:
 
         video_max_frames:
           name: "Max Frames"
-          description: "Anzahl der zu analysierenden Frames (wählt die mit meister Bewegung)"
           default: 3
           selector:
             number:
@@ -243,7 +234,6 @@ blueprint:
 
         video_max_tokens:
           name: "Max Tokens"
-          description: "Maximale Anzahl der Antwort-Tokens"
           default: 5000
           selector:
             number:
@@ -252,7 +242,6 @@ blueprint:
 
         video_max_retries:
           name: "Max Versuche"
-          description: "Wie oft bei 'Unklar' wiederholt werden soll (1 = kein Retry)"
           default: 3
           selector:
             number:
@@ -267,7 +256,6 @@ blueprint:
 
         video_prompt:
           name: "Video-Analyse Prompt"
-          description: "Reduziert auf die 3 Kern-Kategorien für maximale Stabilität"
           default: >
             CONTEXT: Security camera video recording from private property.
             Current time: {{ now().strftime('%H:%M') }}
@@ -362,17 +350,6 @@ blueprint:
           selector:
             text:
 
-        notification_time:
-          name: "Zeit im Titel"
-          default: ""
-          selector:
-            select:
-              options:
-                - label: "Keine Zeit"
-                  value: ""
-                - label: "Mit Uhrzeit"
-                  value: "um {{ now().strftime('%H:%M') }}"
-
         delay_notification:
           name: "Cooldown zwischen Benachrichtigungen"
           description: "Verhindert Spam bei mehrfachen Triggern"
@@ -385,6 +362,7 @@ blueprint:
 
         alarm_repetition_count:
           name: "Alarm-Wiederholungen (wenn aktiv)"
+          description: "Greift erst ab Level 'time-sensitive'!"
           default: 5
           selector:
             number:
@@ -402,20 +380,18 @@ blueprint:
     # =======================
     notification_sounds_section:
       name: "Benachrichtigungstöne"
-      description: "Unterschiedliche Töne und Lautstärken für normale und kritische Benachrichtigungen"
+      description: "Unterschiedliche Töne und Lautstärken"
       icon: mdi:bell-ring
       collapsed: true
       input:
         notification_sound:
-          name: "Ton (Normal: passive/active/time-sensitive)"
-          description: "Benachrichtigungston für nicht-kritische Events"
+          name: "Ton (Normal)"
           default: "LiquidDetected.caf"
           selector:
             text:
 
         notification_volume:
           name: "Lautstärke (Normal)"
-          description: "Lautstärke für nicht-kritische Events"
           default: 0.7
           selector:
             number:
@@ -425,14 +401,12 @@ blueprint:
 
         notification_sound_critical:
           name: "Ton (Critical)"
-          description: "Benachrichtigungston für kritische Events"
           default: "alarm.caf"
           selector:
             text:
 
         notification_volume_critical:
           name: "Lautstärke (Critical)"
-          description: "Lautstärke für kritische Events"
           default: 1.0
           selector:
             number:
@@ -539,7 +513,6 @@ blueprint:
       input:
         lg_tv_enable:
           name: "LG WebOS TV Benachrichtigungen"
-          description: "Sendet Nachrichten an LG TV via notify.lg_webos_smart_tv"
           default: false
           selector:
             boolean:
@@ -623,7 +596,6 @@ blueprint:
     # =======================
     scenario_1_section:
       name: "Szenario 1: Anwesend, Alarmanlage intern scharf"
-      description: "Höchste Sicherheit bei Anwesenheit"
       icon: mdi:shield-home
       collapsed: true
       input:
@@ -635,14 +607,12 @@ blueprint:
 
         s1_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s1_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -695,7 +665,6 @@ blueprint:
 
         s1_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "probably-person"
           selector:
             select:
@@ -723,21 +692,8 @@ blueprint:
           selector:
             boolean:
 
-        s1_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s1_alarm_mode:
           name: "Alarm-Wiederholungen"
-          default: true
-          selector:
-            boolean:
-
-        s1_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: true
           selector:
             boolean:
@@ -747,7 +703,6 @@ blueprint:
     # =======================
     scenario_2_section:
       name: "Szenario 2: Anwesend, spät abends, unscharf"
-      description: "Erhöhte Aufmerksamkeit am Abend"
       icon: mdi:weather-night
       collapsed: true
       input:
@@ -759,14 +714,12 @@ blueprint:
 
         s2_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s2_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -819,7 +772,6 @@ blueprint:
 
         s2_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "definitely-person"
           selector:
             select:
@@ -847,21 +799,8 @@ blueprint:
           selector:
             boolean:
 
-        s2_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s2_alarm_mode:
           name: "Alarm-Wiederholungen"
-          default: false
-          selector:
-            boolean:
-
-        s2_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: false
           selector:
             boolean:
@@ -871,7 +810,6 @@ blueprint:
     # =======================
     scenario_3_section:
       name: "Szenario 3: Anwesend, tagsüber, unscharf"
-      description: "Minimale Überwachung tagsüber"
       icon: mdi:weather-sunny
       collapsed: true
       input:
@@ -883,14 +821,12 @@ blueprint:
 
         s3_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s3_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: false
           selector:
             boolean:
@@ -943,7 +879,6 @@ blueprint:
 
         s3_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "never"
           selector:
             select:
@@ -971,21 +906,8 @@ blueprint:
           selector:
             boolean:
 
-        s3_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s3_alarm_mode:
           name: "Alarm-Wiederholungen"
-          default: false
-          selector:
-            boolean:
-
-        s3_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: false
           selector:
             boolean:
@@ -995,7 +917,6 @@ blueprint:
     # =======================
     scenario_4_section:
       name: "Szenario 4: Abwesend, Alarmanlage extern scharf, spät abends"
-      description: "Maximale Sicherheit bei Abwesenheit am Abend"
       icon: mdi:shield-lock
       collapsed: true
       input:
@@ -1007,14 +928,12 @@ blueprint:
 
         s4_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s4_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1067,7 +986,6 @@ blueprint:
 
         s4_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "no-person"
           selector:
             select:
@@ -1095,12 +1013,6 @@ blueprint:
           selector:
             boolean:
 
-        s4_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s4_alarm_mode:
           name: "Alarm-Wiederholungen"
           default: true
@@ -1113,19 +1025,11 @@ blueprint:
           selector:
             condition:
 
-        s4_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
-          default: true
-          selector:
-            boolean:
-
     # =======================
     # SZENARIO 4a
     # =======================
     scenario_4a_section:
       name: "Szenario 4a: Abwesend, Alarmanlage extern scharf, tagsüber"
-      description: "Maximale Sicherheit bei Abwesenheit tagsüber"
       icon: mdi:shield-sun
       collapsed: true
       input:
@@ -1137,14 +1041,12 @@ blueprint:
 
         s4a_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s4a_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1197,7 +1099,6 @@ blueprint:
 
         s4a_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "no-person"
           selector:
             select:
@@ -1225,12 +1126,6 @@ blueprint:
           selector:
             boolean:
 
-        s4a_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s4a_alarm_mode:
           name: "Alarm-Wiederholungen"
           default: true
@@ -1243,19 +1138,11 @@ blueprint:
           selector:
             condition:
 
-        s4a_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
-          default: true
-          selector:
-            boolean:
-
     # =======================
     # SZENARIO 5
     # =======================
     scenario_5_section:
       name: "Szenario 5: Abwesend, Alarmanlage nicht scharf"
-      description: "Basis-Überwachung ohne Alarm"
       icon: mdi:home-outline
       collapsed: true
       input:
@@ -1267,14 +1154,12 @@ blueprint:
 
         s5_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s5_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1327,7 +1212,6 @@ blueprint:
 
         s5_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "probably-person"
           selector:
             select:
@@ -1355,21 +1239,8 @@ blueprint:
           selector:
             boolean:
 
-        s5_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s5_alarm_mode:
           name: "Alarm-Wiederholungen"
-          default: false
-          selector:
-            boolean:
-
-        s5_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
           default: false
           selector:
             boolean:
@@ -1379,7 +1250,6 @@ blueprint:
     # =======================
     scenario_6_section:
       name: "Szenario 6: Manueller Modus"
-      description: "Aktiviert wenn Helper Entity an ist"
       icon: mdi:hand-pointing-right
       collapsed: true
       input:
@@ -1391,14 +1261,12 @@ blueprint:
 
         s6_snapshot:
           name: "Snapshot erstellen"
-          description: "Erstellt ein Standbild bei Bewegungserkennung"
           default: true
           selector:
             boolean:
 
         s6_video:
           name: "Video aufnehmen"
-          description: "⚠️ WICHTIG: Muss aktiviert sein, wenn Video-Analyse genutzt werden soll!"
           default: true
           selector:
             boolean:
@@ -1451,7 +1319,6 @@ blueprint:
 
         s6_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme!"
           default: "no-person"
           selector:
             select:
@@ -1479,54 +1346,17 @@ blueprint:
           selector:
             boolean:
 
-        s6_tts_conditions:
-          name: "Zusätzliche TTS-Bedingungen"
-          default: []
-          selector:
-            condition:
-
         s6_alarm_mode:
           name: "Alarm-Wiederholungen"
           default: true
           selector:
             boolean:
 
-        s6_update_push:
-          name: "Update-Push nach Video-Analyse"
-          description: "⚠️ Benötigt aktivierte Video-Aufnahme und Video-Analyse!"
-          default: true
-          selector:
-            boolean:
-
-    # =======================
-    # SONSTIGES
-    # =======================
-    misc_section:
-      name: "Sonstiges"
-      description: "Globale Einstellungen"
-      icon: mdi:cog
-      collapsed: true
-      input:
-        debug_info_enabled:
-          name: "Debug-Infos in Benachrichtigungen"
-          description: "Zeigt technische Details in Push-Nachrichten"
-          default: true
-          selector:
-            boolean:
-
-        global_cooldown:
-          name: "Globaler Cooldown"
-          description: "Pause am Ende der Automation"
-          default: { seconds: 20 }
-          selector:
-            duration: {}
-
 # ================= Variables =================
 variables:
   response:
     response_text: ""
   
-  # NEU in 3.6.3: Mapping reduziert auf die 3 Kern-Zustände
   video_result_map:
     definitely-person: "Person erkannt"
     probably-person: "Möglicherweise Person"
@@ -1561,7 +1391,6 @@ variables:
   snapshot_dir_web_base: !input snapshot_dir_web
   
   tap_navigate: !input tap_navigate
-  notification_time: !input notification_time
   notification_sound: !input notification_sound
   notification_volume: !input notification_volume
   notification_sound_critical: !input notification_sound_critical
@@ -1616,9 +1445,7 @@ variables:
   s1_video_min_detection: !input s1_video_min_detection
   s1_tv_notify: !input s1_tv_notify
   s1_tts_enable: !input s1_tts_enable
-  s1_tts_conditions: !input s1_tts_conditions
   s1_alarm_mode: !input s1_alarm_mode
-  s1_update_push: !input s1_update_push
   
   s2_conditions: !input s2_conditions
   s2_snapshot: !input s2_snapshot
@@ -1633,9 +1460,7 @@ variables:
   s2_video_min_detection: !input s2_video_min_detection
   s2_tv_notify: !input s2_tv_notify
   s2_tts_enable: !input s2_tts_enable
-  s2_tts_conditions: !input s2_tts_conditions
   s2_alarm_mode: !input s2_alarm_mode
-  s2_update_push: !input s2_update_push
   
   s3_conditions: !input s3_conditions
   s3_snapshot: !input s3_snapshot
@@ -1650,9 +1475,7 @@ variables:
   s3_video_min_detection: !input s3_video_min_detection
   s3_tv_notify: !input s3_tv_notify
   s3_tts_enable: !input s3_tts_enable
-  s3_tts_conditions: !input s3_tts_conditions
   s3_alarm_mode: !input s3_alarm_mode
-  s3_update_push: !input s3_update_push
   
   s4_conditions: !input s4_conditions
   s4_snapshot: !input s4_snapshot
@@ -1667,10 +1490,8 @@ variables:
   s4_video_min_detection: !input s4_video_min_detection
   s4_tv_notify: !input s4_tv_notify
   s4_tts_enable: !input s4_tts_enable
-  s4_tts_conditions: !input s4_tts_conditions
   s4_alarm_mode: !input s4_alarm_mode
   s4_alarm_conditions: !input s4_alarm_conditions
-  s4_update_push: !input s4_update_push
   
   s4a_conditions: !input s4a_conditions
   s4a_snapshot: !input s4a_snapshot
@@ -1685,10 +1506,8 @@ variables:
   s4a_video_min_detection: !input s4a_video_min_detection
   s4a_tv_notify: !input s4a_tv_notify
   s4a_tts_enable: !input s4a_tts_enable
-  s4a_tts_conditions: !input s4a_tts_conditions
   s4a_alarm_mode: !input s4a_alarm_mode
   s4a_alarm_conditions: !input s4a_alarm_conditions
-  s4a_update_push: !input s4a_update_push
   
   s5_conditions: !input s5_conditions
   s5_snapshot: !input s5_snapshot
@@ -1703,9 +1522,7 @@ variables:
   s5_video_min_detection: !input s5_video_min_detection
   s5_tv_notify: !input s5_tv_notify
   s5_tts_enable: !input s5_tts_enable
-  s5_tts_conditions: !input s5_tts_conditions
   s5_alarm_mode: !input s5_alarm_mode
-  s5_update_push: !input s5_update_push
   
   s6_conditions: !input s6_conditions
   s6_snapshot: !input s6_snapshot
@@ -1720,12 +1537,7 @@ variables:
   s6_video_min_detection: !input s6_video_min_detection
   s6_tv_notify: !input s6_tv_notify
   s6_tts_enable: !input s6_tts_enable
-  s6_tts_conditions: !input s6_tts_conditions
   s6_alarm_mode: !input s6_alarm_mode
-  s6_update_push: !input s6_update_push
-  
-  debug_info_enabled: !input debug_info_enabled
-  global_cooldown: !input global_cooldown
   
   camera_entity_snapshot: >
     {% if trigger is defined and trigger.entity_id %}
@@ -1954,15 +1766,6 @@ action:
         {% if active_scenario == '4' %}{{ s4_alarm_conditions | default([]) }}
         {% elif active_scenario == '4a' %}{{ s4a_alarm_conditions | default([]) }}
         {% else %}[]{% endif %}
-      current_update_push: >
-        {% if active_scenario == '1' %}{{ s1_update_push }}
-        {% elif active_scenario == '2' %}{{ s2_update_push }}
-        {% elif active_scenario == '3' %}{{ s3_update_push }}
-        {% elif active_scenario == '4' %}{{ s4_update_push }}
-        {% elif active_scenario == '4a' %}{{ s4a_update_push }}
-        {% elif active_scenario == '5' %}{{ s5_update_push }}
-        {% elif active_scenario == '6' %}{{ s6_update_push }}
-        {% else %}false{% endif %}
   
   # Check notification cooldown
   - if:
@@ -1978,12 +1781,12 @@ action:
                 value_template: "{{ current_snapshot and current_video and camera_entity_snapshot != '' }}"
             sequence:
               - parallel:
-                  - service: camera.snapshot
+                  - action: camera.snapshot
                     target:
                       entity_id: "{{ camera_entity_snapshot }}"
                     data:
                       filename: "{{ file_path }}"
-                  - service: camera.record
+                  - action: camera.record
                     target:
                       entity_id: "{{ camera_entity_snapshot }}"
                     data:
@@ -1994,7 +1797,7 @@ action:
               - condition: template
                 value_template: "{{ current_snapshot and not current_video and camera_entity_snapshot != '' }}"
             sequence:
-              - service: camera.snapshot
+              - action: camera.snapshot
                 target:
                   entity_id: "{{ camera_entity_snapshot }}"
                 data:
@@ -2003,7 +1806,7 @@ action:
               - condition: template
                 value_template: "{{ not current_snapshot and current_video and camera_entity_snapshot != '' }}"
             sequence:
-              - service: camera.record
+              - action: camera.record
                 target:
                   entity_id: "{{ camera_entity_snapshot }}"
                 data:
@@ -2094,9 +1897,10 @@ action:
           - repeat:
               for_each: "{{ notify_services_all }}"
               sequence:
-                - service: "notify.{{ repeat.item }}"
+                - action: "notify.{{ repeat.item }}"
+                  continue_on_error: true
                   data:
-                    title: "{{ camera }} - {{ label }} {{ notification_time }}"
+                    title: "{{ camera }} - {{ label }} um {{ now().strftime('%H:%M') }}"
                     message: >
                       {% if importance_status == 'disabled' %}Bewegung erkannt
                       {% elif importance_status == 'no_response' %}Bewegung erkannt - Analyse nicht möglich
@@ -2104,10 +1908,6 @@ action:
                       {% elif detection_level == 'definitely-person' %}Person erkannt
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
                       {% else %}Bewegung erkannt - keine Person{% endif %}
-                      {% if debug_info_enabled %}
-                      
-                      (S{{ active_scenario }} | {{ detection_level }} | {{ initial_interruption_level }}{% if importance_attempts_used > 1 %} | {{ importance_attempts_used }}x{% endif %})
-                      {% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -2156,7 +1956,6 @@ action:
             {% else %}false{% endif %}
           video_status: "{% if video_should_run %}pending{% else %}disabled{% endif %}"
           video_result: ""
-          video_attempts_used: 0
           verified_detection: "{{ detection_level }}"
           final_interruption_level: "{{ initial_interruption_level }}"
       
@@ -2167,9 +1966,9 @@ action:
           - variables:
               _video_result_temp: "probably-person"
           
-          # 3.6.1: Wartezeit = Video-Dauer + Lookback + 2s Puffer
+          # Fix 4.0.0: Explicit Type Casting for Integers
           - delay: 
-              seconds: "{{ video_duration + video_lookback + 2 }}"
+              seconds: "{{ video_duration | int + video_lookback | int + 2 }}"
           
           - repeat:
               while:
@@ -2198,7 +1997,6 @@ action:
                   response_variable: _response
                 - variables:
                     _video_result_temp: "{{ _response.response_text | default('') }}"
-                    video_attempts_used: "{{ repeat.index }}"
           - variables:
               video_status: >
                 {% if _video_result_temp == '' %}no_response
@@ -2221,7 +2019,8 @@ action:
           - condition: and
             conditions: !input lg_tv_conditions
         then:
-          - service: notify.lg_webos_smart_tv
+          - action: notify.lg_webos_smart_tv
+            continue_on_error: true
             data:
               title: "{{ lg_tv_message_title }}"
               message: >
@@ -2240,7 +2039,8 @@ action:
           - repeat:
               for_each: "{{ other_notify_entities }}"
               sequence:
-                - service: "{{ repeat.item }}"
+                - action: "{{ repeat.item }}"
+                  continue_on_error: true
                   data:
                     title: "{{ other_notify_title }}"
                     message: >
@@ -2272,12 +2072,14 @@ action:
                 - repeat:
                     for_each: "{{ tts_media_players }}"
                     sequence:
-                      - service: media_player.volume_set
+                      - action: media_player.volume_set
+                        continue_on_error: true
                         target:
                           entity_id: "{{ repeat.item }}"
                         data:
                           volume_level: "{{ tts_volume }}"
-                      - service: tts.speak
+                      - action: tts.speak
+                        continue_on_error: true
                         target:
                           entity_id: "{{ tts_target_entity }}"
                         data:
@@ -2293,10 +2095,12 @@ action:
       # 8) Update push
       - if:
           - condition: template
-            value_template: "{{ current_update_push and video_status != 'disabled' }}"
+            value_template: "{{ video_status != 'disabled' }}"
         then:
+          # Loop Logic: Repeat count > 1 ONLY if level is time-sensitive or higher AND alarm mode is ON
           - repeat:
-              count: "{{ alarm_repetition_count if current_alarm_mode else 1 }}"
+              count: >
+                {{ alarm_repetition_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
               sequence:
                 - if:
                     - condition: template
@@ -2306,18 +2110,15 @@ action:
                 - repeat:
                     for_each: "{{ notify_services_all }}"
                     sequence:
-                      - service: "notify.{{ repeat.item }}"
+                      - action: "notify.{{ repeat.item }}"
+                        continue_on_error: true
                         data:
-                          title: "{{ camera }} - Update {{ notification_time }}"
+                          title: "{{ camera }} - Update um {{ now().strftime('%H:%M') }}"
                           message: >
                             {% if video_status == 'no_response' %}Video-Analyse nicht möglich
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
                             {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
                             {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
-                            {% if debug_info_enabled %}
-                            
-                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
-                            {% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
@@ -2354,5 +2155,6 @@ action:
                                 volume: "{{ notification_volume_critical if final_interruption_level == 'critical' else notification_volume }}"
                                 critical: "{{ final_interruption_level == 'critical' }}"
   
-  # Global cooldown
-  - delay: !input global_cooldown
+  # Standard cooldown to ensure clean exit
+  - delay: 
+      seconds: 5
