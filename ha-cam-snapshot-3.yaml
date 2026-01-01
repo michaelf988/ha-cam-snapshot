@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.7.1"
+  name: "Camera Event Notification 3.7.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -7,8 +7,11 @@ blueprint:
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung. 
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
     
-    VERSION 3.7.1:
-    Update der Benutzeroberfläche mit verständlichen deutschen Beschreibungen und Beispielen.
+    VERSION 3.7.2:
+    - TTS: Wiederholungen und Detection-Level-Schwellwert hinzugefügt
+    - LG WebOS TV: Mehrere Geräte konfigurierbar
+    - Max Versuche vereinheitlicht (beide auf max 10)
+    - Debug-Nachrichten: Analysezeile in zweiten Absatz verschoben
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
@@ -16,6 +19,11 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.7.2: TTS & Debug Improvements
+#        - TTS: Globale Wiederholungen und Detection-Level-Schwellwert
+#        - LG WebOS TV: Multi-Device-Support
+#        - Max Versuche: Beide auf max 10 vereinheitlicht
+#        - Debug: Analysezeile in zweiten Absatz
 # 3.7.1: UI Update
 #        - Descriptions komplett überarbeitet (Deutsch).
 #        - Funktionsweise von Alarm-Modus und Gate im UI erklärt.
@@ -28,7 +36,7 @@ blueprint:
     # =======================
     debug_info_enabled:
       name: "🐞 Debug-Infos in Nachrichten anzeigen"
-      description: "Fügt technische Details (Szenario, Level, API-Versuche) an das Ende der Push-Nachricht an. Hilfreich, um zu verstehen, warum ein bestimmtes Level gewählt wurde."
+      description: "Fügt technische Details (Szenario, Level, API-Versuche) in einem zweiten Absatz an das Ende der Push-Nachricht an. Hilfreich, um zu verstehen, warum ein bestimmtes Level gewählt wurde."
       default: false
       selector:
         boolean: {}
@@ -191,7 +199,7 @@ blueprint:
           selector:
             number:
               min: 1
-              max: 5
+              max: 10
 
         importance_retry_delay:
           name: "Pause zwischen Versuchen"
@@ -329,6 +337,20 @@ blueprint:
               min: 0
               max: 1
               step: 0.05
+
+        tts_min_detection:
+          name: "TTS ab Detection-Level"
+          description: "Ab welchem erkannten Level soll TTS ausgegeben werden? (Beispiel: 'probably-person' = TTS erst ab 'Wahrscheinlich Person' oder höher)"
+          default: "definitely-person"
+          selector:
+            select:
+              options:
+                - label: "Immer (auch keine Person)"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Nur: Definitiv Person"
+                  value: "definitely-person"
 
         tts_repeat_count:
           name: "TTS Wiederholungen"
@@ -546,6 +568,16 @@ blueprint:
           selector:
             boolean:
 
+        lg_tv_entities:
+          name: "LG WebOS TV Geräte"
+          description: "Wähle ein oder mehrere LG WebOS TVs aus (z.B. notify.lg_webos_smart_tv)."
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: notify
+
         lg_tv_conditions:
           name: "Bedingungen für LG TV-Benachrichtigungen"
           description: "Zusätzliche Bedingungen (z.B. nur wenn TV an ist)."
@@ -726,8 +758,8 @@ blueprint:
             boolean:
 
         s1_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
-          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
+          name: "Sprachansage aktivieren"
+          description: "Aktiviert TTS-Ansagen für dieses Szenario (Level-Schwellwert wird global in TTS-Einstellungen definiert)."
           default: true
           selector:
             boolean:
@@ -838,7 +870,7 @@ blueprint:
             boolean:
 
         s2_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
+          name: "Sprachansage aktivieren"
           default: false
           selector:
             boolean:
@@ -948,7 +980,7 @@ blueprint:
             boolean:
 
         s3_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
+          name: "Sprachansage aktivieren"
           default: false
           selector:
             boolean:
@@ -1056,7 +1088,7 @@ blueprint:
             boolean:
 
         s4_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
+          name: "Sprachansage aktivieren"
           default: false
           selector:
             boolean:
@@ -1171,7 +1203,7 @@ blueprint:
             boolean:
 
         s4a_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
+          name: "Sprachansage aktivieren"
           default: false
           selector:
             boolean:
@@ -1285,7 +1317,7 @@ blueprint:
             boolean:
 
         s5_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
+          name: "Sprachansage aktivieren"
           default: false
           selector:
             boolean:
@@ -1393,7 +1425,7 @@ blueprint:
             boolean:
 
         s6_tts_enable:
-          name: "Sprachansage (nur bei Critical)"
+          name: "Sprachansage aktivieren"
           default: true
           selector:
             boolean:
@@ -1457,10 +1489,12 @@ variables:
   tts_target_entity: !input tts_target_entity
   tts_media_players: !input tts_media_players
   tts_volume: !input tts_volume
+  tts_min_detection: !input tts_min_detection
   tts_repeat_count: !input tts_repeat_count
   tts_repeat_delay: !input tts_repeat_delay
   
   lg_tv_enable: !input lg_tv_enable
+  lg_tv_entities: !input lg_tv_entities
   lg_tv_conditions: !input lg_tv_conditions
   lg_tv_message_title: !input lg_tv_message_title
   
@@ -1935,7 +1969,7 @@ action:
             {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
             {% else %}{{ current_level_no_person }}{% endif %}
       
-      # FIX 3.7.0: Initialisiere Variablen für Debug-Info, damit Schritt 4 nicht crasht
+      # Initialize variables for debug info
       - variables:
           verified_detection: "{{ detection_level }}"
           final_interruption_level: "{{ initial_interruption_level }}"
@@ -1968,10 +2002,9 @@ action:
                       {% elif importance_status == 'invalid_response' %}Bewegung erkannt - Analyse fehlerhaft
                       {% elif detection_level == 'definitely-person' %}Person erkannt
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
-                      {% else %}Bewegung erkannt - keine Person{% endif %}
-                      {% if debug_info_enabled %}
-                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
-                      {% endif %}
+                      {% else %}Bewegung erkannt - keine Person{% endif %}{% if debug_info_enabled %}
+
+                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -2028,7 +2061,7 @@ action:
           - variables:
               _video_result_temp: "probably-person"
           
-          # Fix 4.0.0: Explicit Type Casting for Integers
+          # Explicit Type Casting for Integers
           - delay: 
               seconds: "{{ video_duration | int + video_lookback | int + 2 }}"
           
@@ -2059,7 +2092,6 @@ action:
                   response_variable: _response
                 - variables:
                     _video_result_temp: "{{ _response.response_text | default('') }}"
-                    # FIX 3.7.0: Variable für Debugging speichern
                     video_attempts_used: "{{ repeat.index }}"
           - variables:
               video_status: >
@@ -2079,20 +2111,23 @@ action:
       # 6) TV notifications
       - if:
           - condition: template
-            value_template: "{{ current_tv_notify and lg_tv_enable }}"
+            value_template: "{{ current_tv_notify and lg_tv_enable and lg_tv_entities|length > 0 }}"
           - condition: and
             conditions: !input lg_tv_conditions
         then:
-          - action: notify.lg_webos_smart_tv
-            continue_on_error: true
-            data:
-              title: "{{ lg_tv_message_title }}"
-              message: >
-                {% if video_status == 'success' and video_result %}
-                  {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
-                {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
-                {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+          - repeat:
+              for_each: "{{ lg_tv_entities }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  continue_on_error: true
+                  data:
+                    title: "{{ lg_tv_message_title }}"
+                    message: >
+                      {% if video_status == 'success' and video_result %}
+                        {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                      {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                      {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                      {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
       
       - if:
           - condition: template
@@ -2119,7 +2154,11 @@ action:
           - condition: template
             value_template: "{{ current_tts_enable }}"
           - condition: template
-            value_template: "{{ final_interruption_level == 'critical' }}"
+            value_template: >
+              {% if tts_min_detection == 'no-person' %}true
+              {% elif tts_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
+              {% elif tts_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
+              {% else %}false{% endif %}
           - condition: template
             value_template: "{{ tts_media_players|length > 0 }}"
           - condition: template
@@ -2152,8 +2191,8 @@ action:
                           message: >
                             {% if video_status == 'success' and video_result %}
                               Achtung! {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                            {% elif detection_level == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
-                            {% elif detection_level == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
+                            {% elif verified_detection == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
                             {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
       
       # 8) Update push
@@ -2182,10 +2221,9 @@ action:
                             {% if video_status == 'no_response' %}Video-Analyse nicht möglich
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
                             {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
-                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
-                            {% if debug_info_enabled %}
-                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
-                            {% endif %}
+                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}{% if debug_info_enabled %}
+
+                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
