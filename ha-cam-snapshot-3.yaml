@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.7.1"
+  name: "Camera Event Notification 3.7.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -7,8 +7,10 @@ blueprint:
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung. 
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
     
-    VERSION 3.7.1:
-    Update der Benutzeroberfläche mit verständlichen deutschen Beschreibungen und Beispielen.
+    VERSION 3.7.2:
+    - TV-Benachrichtigungen: Multi-Device Support, Detection-Level Filter, Wiederholungen
+    - Max Versuche bei Wichtigkeitsanalyse auf 10 angehoben
+    - Debug-Nachrichten: Analysezeile in zweiten Absatz verschoben
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
@@ -16,6 +18,12 @@ blueprint:
 # =======================
 # CHANGELOG
 # =======================
+# 3.7.2: TV Notification Enhancements
+#        - LG WebOS TV: Multi-Device Support (Entity Selector)
+#        - LG WebOS TV: Detection-Level Filter & Wiederholungen
+#        - Andere Notify Services: Detection-Level Filter & Wiederholungen
+#        - Max Versuche Wichtigkeitsanalyse: 5 → 10
+#        - Debug-Nachrichten: Analysezeile in zweiten Absatz
 # 3.7.1: UI Update
 #        - Descriptions komplett überarbeitet (Deutsch).
 #        - Funktionsweise von Alarm-Modus und Gate im UI erklärt.
@@ -191,7 +199,7 @@ blueprint:
           selector:
             number:
               min: 1
-              max: 5
+              max: 10
 
         importance_retry_delay:
           name: "Pause zwischen Versuchen"
@@ -546,6 +554,17 @@ blueprint:
           selector:
             boolean:
 
+        lg_tv_entities:
+          name: "LG WebOS TV Geräte"
+          description: "Wähle ein oder mehrere LG TVs aus, die Benachrichtigungen erhalten sollen."
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: media_player
+                integration: webostv
+
         lg_tv_conditions:
           name: "Bedingungen für LG TV-Benachrichtigungen"
           description: "Zusätzliche Bedingungen (z.B. nur wenn TV an ist)."
@@ -558,6 +577,39 @@ blueprint:
           default: "Sicherheitswarnung"
           selector:
             text:
+
+        lg_tv_min_detection:
+          name: "LG TV ab Detection-Level"
+          description: "Sendet TV-Benachrichtigung erst ab diesem Erkennungs-Level (nach Video-Analyse)."
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        lg_tv_repeat_count:
+          name: "LG TV Wiederholungen"
+          description: "Anzahl der Benachrichtigungen (nur bei Alarm-Modus + Level >= time-sensitive)."
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 20
+
+        lg_tv_repeat_delay:
+          name: "LG TV Pause zwischen Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
 
         other_notify_entities:
           name: "Weitere Notify Services (optional)"
@@ -580,6 +632,39 @@ blueprint:
           default: "Sicherheitswarnung"
           selector:
             text:
+
+        other_notify_min_detection:
+          name: "Weitere Services ab Detection-Level"
+          description: "Sendet Benachrichtigung erst ab diesem Erkennungs-Level (nach Video-Analyse)."
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        other_notify_repeat_count:
+          name: "Weitere Services Wiederholungen"
+          description: "Anzahl der Benachrichtigungen (nur bei Alarm-Modus + Level >= time-sensitive)."
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 20
+
+        other_notify_repeat_delay:
+          name: "Weitere Services Pause zwischen Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
 
     # =======================
     # 7. SZENARIO-STEUERUNG
@@ -632,7 +717,7 @@ blueprint:
       input:
         s1_conditions:
           name: "Aktivierungsbedingungen"
-          description: "Definiere hier, wann Szenario 1 aktiv sein soll (z.B. Alarm Status = armed_home)."
+          description: "Definiere hier, wann Szenario 1 aktiv sein soll."
           default: []
           selector:
             condition:
@@ -689,7 +774,7 @@ blueprint:
 
         s1_gate_threshold:
           name: "Gate Schwellwert"
-          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist. Beispiel: Bei 'active' werden 'passive' Events verworfen."
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "passive"
           selector:
             select:
@@ -703,7 +788,7 @@ blueprint:
 
         s1_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot. Spart AI-Kosten."
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "probably-person"
           selector:
             select:
@@ -734,7 +819,7 @@ blueprint:
 
         s1_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
-          description: "Sendet mehrere Push-Nachrichten hintereinander ('Nerv-Modus'). WICHTIG: Greift technisch nur, wenn das Ereignis-Level zusätzlich mindestens 'time-sensitive' ist."
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: true
           selector:
             boolean:
@@ -750,7 +835,7 @@ blueprint:
       input:
         s2_conditions:
           name: "Aktivierungsbedingungen"
-          description: "Bedingungen für Szenario 2 (z.B. nach 22 Uhr UND Alarm unscharf)."
+          description: "Definiere hier, wann Szenario 2 aktiv sein soll."
           default: []
           selector:
             condition:
@@ -769,12 +854,14 @@ blueprint:
 
         s2_importance_check:
           name: "Wichtigkeitsanalyse (AI)"
+          description: "Aktiviert die erste AI-Prüfung des Snapshots."
           default: true
           selector:
             boolean:
 
         s2_level_no_person:
           name: "Level bei: Keine Person"
+          description: "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
           default: "passive"
           selector:
             select:
@@ -782,6 +869,7 @@ blueprint:
 
         s2_level_probably_person:
           name: "Level bei: Wahrscheinlich Person"
+          description: "Dringlichkeit, wenn AI sich unsicher ist."
           default: "active"
           selector:
             select:
@@ -789,6 +877,7 @@ blueprint:
 
         s2_level_definitely_person:
           name: "Level bei: Definitiv Person"
+          description: "Dringlichkeit bei eindeutiger Personenerkennung."
           default: "time-sensitive"
           selector:
             select:
@@ -796,12 +885,14 @@ blueprint:
 
         s2_gate_enable:
           name: "Gate aktivieren (Filter)"
+          description: "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
           default: true
           selector:
             boolean:
 
         s2_gate_threshold:
           name: "Gate Schwellwert"
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "active"
           selector:
             select:
@@ -815,7 +906,7 @@ blueprint:
 
         s2_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
-          description: "Hier z.B. erst ab 'Definitiv Person' prüfen, um AI-Kosten gering zu halten."
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "definitely-person"
           selector:
             select:
@@ -839,12 +930,14 @@ blueprint:
 
         s2_tts_enable:
           name: "Sprachansage (nur bei Critical)"
+          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
           default: false
           selector:
             boolean:
 
         s2_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: false
           selector:
             boolean:
@@ -860,6 +953,7 @@ blueprint:
       input:
         s3_conditions:
           name: "Aktivierungsbedingungen"
+          description: "Definiere hier, wann Szenario 3 aktiv sein soll."
           default: []
           selector:
             condition:
@@ -878,13 +972,14 @@ blueprint:
 
         s3_importance_check:
           name: "Wichtigkeitsanalyse (AI)"
-          description: "Tagsüber oft deaktiviert, um Kosten zu sparen."
+          description: "Aktiviert die erste AI-Prüfung des Snapshots."
           default: false
           selector:
             boolean:
 
         s3_level_no_person:
           name: "Level bei: Keine Person"
+          description: "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
           default: "passive"
           selector:
             select:
@@ -892,6 +987,7 @@ blueprint:
 
         s3_level_probably_person:
           name: "Level bei: Wahrscheinlich Person"
+          description: "Dringlichkeit, wenn AI sich unsicher ist."
           default: "passive"
           selector:
             select:
@@ -899,6 +995,7 @@ blueprint:
 
         s3_level_definitely_person:
           name: "Level bei: Definitiv Person"
+          description: "Dringlichkeit bei eindeutiger Personenerkennung."
           default: "active"
           selector:
             select:
@@ -906,13 +1003,14 @@ blueprint:
 
         s3_gate_enable:
           name: "Gate aktivieren (Filter)"
-          description: "Filtert unwichtige Ereignisse komplett raus."
+          description: "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
           default: false
           selector:
             boolean:
 
         s3_gate_threshold:
           name: "Gate Schwellwert"
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "time-sensitive"
           selector:
             select:
@@ -926,6 +1024,7 @@ blueprint:
 
         s3_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "never"
           selector:
             select:
@@ -949,12 +1048,14 @@ blueprint:
 
         s3_tts_enable:
           name: "Sprachansage (nur bei Critical)"
+          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
           default: false
           selector:
             boolean:
 
         s3_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: false
           selector:
             boolean:
@@ -970,6 +1071,7 @@ blueprint:
       input:
         s4_conditions:
           name: "Aktivierungsbedingungen"
+          description: "Definiere hier, wann Szenario 4 aktiv sein soll."
           default: []
           selector:
             condition:
@@ -988,12 +1090,14 @@ blueprint:
 
         s4_importance_check:
           name: "Wichtigkeitsanalyse (AI)"
+          description: "Aktiviert die erste AI-Prüfung des Snapshots."
           default: true
           selector:
             boolean:
 
         s4_level_no_person:
           name: "Level bei: Keine Person"
+          description: "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
           default: "active"
           selector:
             select:
@@ -1001,6 +1105,7 @@ blueprint:
 
         s4_level_probably_person:
           name: "Level bei: Wahrscheinlich Person"
+          description: "Dringlichkeit, wenn AI sich unsicher ist."
           default: "time-sensitive"
           selector:
             select:
@@ -1008,6 +1113,7 @@ blueprint:
 
         s4_level_definitely_person:
           name: "Level bei: Definitiv Person"
+          description: "Dringlichkeit bei eindeutiger Personenerkennung."
           default: "critical"
           selector:
             select:
@@ -1015,12 +1121,14 @@ blueprint:
 
         s4_gate_enable:
           name: "Gate aktivieren (Filter)"
+          description: "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
           default: true
           selector:
             boolean:
 
         s4_gate_threshold:
           name: "Gate Schwellwert"
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "active"
           selector:
             select:
@@ -1034,6 +1142,7 @@ blueprint:
 
         s4_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "no-person"
           selector:
             select:
@@ -1057,19 +1166,21 @@ blueprint:
 
         s4_tts_enable:
           name: "Sprachansage (nur bei Critical)"
+          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
           default: false
           selector:
             boolean:
 
         s4_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: true
           selector:
             boolean:
 
         s4_alarm_conditions:
           name: "Zusätzliche Alarm-Bedingungen"
-          description: "Weitere Checks, bevor der Alarm-Modus loslegt (z.B. nur wenn Alarmanlage wirklich getriggert hat)."
+          description: "Weitere Checks, bevor der Alarm-Modus loslegt."
           default: []
           selector:
             condition:
@@ -1085,6 +1196,7 @@ blueprint:
       input:
         s4a_conditions:
           name: "Aktivierungsbedingungen"
+          description: "Definiere hier, wann Szenario 4a aktiv sein soll."
           default: []
           selector:
             condition:
@@ -1103,12 +1215,14 @@ blueprint:
 
         s4a_importance_check:
           name: "Wichtigkeitsanalyse (AI)"
+          description: "Aktiviert die erste AI-Prüfung des Snapshots."
           default: true
           selector:
             boolean:
 
         s4a_level_no_person:
           name: "Level bei: Keine Person"
+          description: "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
           default: "active"
           selector:
             select:
@@ -1116,6 +1230,7 @@ blueprint:
 
         s4a_level_probably_person:
           name: "Level bei: Wahrscheinlich Person"
+          description: "Dringlichkeit, wenn AI sich unsicher ist."
           default: "time-sensitive"
           selector:
             select:
@@ -1123,6 +1238,7 @@ blueprint:
 
         s4a_level_definitely_person:
           name: "Level bei: Definitiv Person"
+          description: "Dringlichkeit bei eindeutiger Personenerkennung."
           default: "critical"
           selector:
             select:
@@ -1130,12 +1246,14 @@ blueprint:
 
         s4a_gate_enable:
           name: "Gate aktivieren (Filter)"
+          description: "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
           default: true
           selector:
             boolean:
 
         s4a_gate_threshold:
           name: "Gate Schwellwert"
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "active"
           selector:
             select:
@@ -1149,6 +1267,7 @@ blueprint:
 
         s4a_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "no-person"
           selector:
             select:
@@ -1172,18 +1291,21 @@ blueprint:
 
         s4a_tts_enable:
           name: "Sprachansage (nur bei Critical)"
+          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
           default: false
           selector:
             boolean:
 
         s4a_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: true
           selector:
             boolean:
 
         s4a_alarm_conditions:
           name: "Zusätzliche Alarm-Bedingungen"
+          description: "Weitere Checks, bevor der Alarm-Modus loslegt."
           default: []
           selector:
             condition:
@@ -1199,6 +1321,7 @@ blueprint:
       input:
         s5_conditions:
           name: "Aktivierungsbedingungen"
+          description: "Definiere hier, wann Szenario 5 aktiv sein soll."
           default: []
           selector:
             condition:
@@ -1217,12 +1340,14 @@ blueprint:
 
         s5_importance_check:
           name: "Wichtigkeitsanalyse (AI)"
+          description: "Aktiviert die erste AI-Prüfung des Snapshots."
           default: true
           selector:
             boolean:
 
         s5_level_no_person:
           name: "Level bei: Keine Person"
+          description: "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
           default: "passive"
           selector:
             select:
@@ -1230,6 +1355,7 @@ blueprint:
 
         s5_level_probably_person:
           name: "Level bei: Wahrscheinlich Person"
+          description: "Dringlichkeit, wenn AI sich unsicher ist."
           default: "active"
           selector:
             select:
@@ -1237,6 +1363,7 @@ blueprint:
 
         s5_level_definitely_person:
           name: "Level bei: Definitiv Person"
+          description: "Dringlichkeit bei eindeutiger Personenerkennung."
           default: "time-sensitive"
           selector:
             select:
@@ -1244,12 +1371,14 @@ blueprint:
 
         s5_gate_enable:
           name: "Gate aktivieren (Filter)"
+          description: "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
           default: false
           selector:
             boolean:
 
         s5_gate_threshold:
           name: "Gate Schwellwert"
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "active"
           selector:
             select:
@@ -1263,6 +1392,7 @@ blueprint:
 
         s5_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "probably-person"
           selector:
             select:
@@ -1286,12 +1416,14 @@ blueprint:
 
         s5_tts_enable:
           name: "Sprachansage (nur bei Critical)"
+          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
           default: false
           selector:
             boolean:
 
         s5_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: false
           selector:
             boolean:
@@ -1306,7 +1438,8 @@ blueprint:
       collapsed: true
       input:
         s6_conditions:
-          name: "Zusätzliche Aktivierungsbedingungen"
+          name: "Aktivierungsbedingungen"
+          description: "Definiere hier, wann Szenario 6 aktiv sein soll."
           default: []
           selector:
             condition:
@@ -1325,12 +1458,14 @@ blueprint:
 
         s6_importance_check:
           name: "Wichtigkeitsanalyse (AI)"
+          description: "Aktiviert die erste AI-Prüfung des Snapshots."
           default: true
           selector:
             boolean:
 
         s6_level_no_person:
           name: "Level bei: Keine Person"
+          description: "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
           default: "active"
           selector:
             select:
@@ -1338,6 +1473,7 @@ blueprint:
 
         s6_level_probably_person:
           name: "Level bei: Wahrscheinlich Person"
+          description: "Dringlichkeit, wenn AI sich unsicher ist."
           default: "time-sensitive"
           selector:
             select:
@@ -1345,6 +1481,7 @@ blueprint:
 
         s6_level_definitely_person:
           name: "Level bei: Definitiv Person"
+          description: "Dringlichkeit bei eindeutiger Personenerkennung."
           default: "critical"
           selector:
             select:
@@ -1352,12 +1489,14 @@ blueprint:
 
         s6_gate_enable:
           name: "Gate aktivieren (Filter)"
+          description: "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
           default: false
           selector:
             boolean:
 
         s6_gate_threshold:
           name: "Gate Schwellwert"
+          description: "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
           default: "active"
           selector:
             select:
@@ -1371,6 +1510,7 @@ blueprint:
 
         s6_video_min_detection:
           name: "Video-Analyse ab Detection-Level"
+          description: "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
           default: "no-person"
           selector:
             select:
@@ -1394,12 +1534,14 @@ blueprint:
 
         s6_tts_enable:
           name: "Sprachansage (nur bei Critical)"
+          description: "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
           default: true
           selector:
             boolean:
 
         s6_alarm_mode:
           name: "Alarm-Wiederholungen aktivieren"
+          description: "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
           default: true
           selector:
             boolean:
@@ -1461,12 +1603,19 @@ variables:
   tts_repeat_delay: !input tts_repeat_delay
   
   lg_tv_enable: !input lg_tv_enable
+  lg_tv_entities: !input lg_tv_entities
   lg_tv_conditions: !input lg_tv_conditions
   lg_tv_message_title: !input lg_tv_message_title
+  lg_tv_min_detection: !input lg_tv_min_detection
+  lg_tv_repeat_count: !input lg_tv_repeat_count
+  lg_tv_repeat_delay: !input lg_tv_repeat_delay
   
   other_notify_entities: !input other_notify_entities
   other_notify_conditions: !input other_notify_conditions
   other_notify_title: !input other_notify_title
+  other_notify_min_detection: !input other_notify_min_detection
+  other_notify_repeat_count: !input other_notify_repeat_count
+  other_notify_repeat_delay: !input other_notify_repeat_delay
   
   action1_enabled: !input action1_enabled
   action1_title: !input action1_title
@@ -1935,7 +2084,7 @@ action:
             {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
             {% else %}{{ current_level_no_person }}{% endif %}
       
-      # FIX 3.7.0: Initialisiere Variablen für Debug-Info, damit Schritt 4 nicht crasht
+      # Initialize variables for debugging to avoid crashes in Step 4
       - variables:
           verified_detection: "{{ detection_level }}"
           final_interruption_level: "{{ initial_interruption_level }}"
@@ -1968,10 +2117,9 @@ action:
                       {% elif importance_status == 'invalid_response' %}Bewegung erkannt - Analyse fehlerhaft
                       {% elif detection_level == 'definitely-person' %}Person erkannt
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
-                      {% else %}Bewegung erkannt - keine Person{% endif %}
-                      {% if debug_info_enabled %}
-                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
-                      {% endif %}
+                      {% else %}Bewegung erkannt - keine Person{% endif %}{% if debug_info_enabled %}
+
+                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -2028,7 +2176,7 @@ action:
           - variables:
               _video_result_temp: "probably-person"
           
-          # Fix 4.0.0: Explicit Type Casting for Integers
+          # Explicit Type Casting for Integers
           - delay: 
               seconds: "{{ video_duration | int + video_lookback | int + 2 }}"
           
@@ -2059,7 +2207,6 @@ action:
                   response_variable: _response
                 - variables:
                     _video_result_temp: "{{ _response.response_text | default('') }}"
-                    # FIX 3.7.0: Variable für Debugging speichern
                     video_attempts_used: "{{ repeat.index }}"
           - variables:
               video_status: >
@@ -2076,43 +2223,87 @@ action:
                 {% elif verified_detection == 'probably-person' %}{{ current_level_probably_person }}
                 {% else %}{{ current_level_no_person }}{% endif %}
       
-      # 6) TV notifications
+      # 6) TV notifications - LG WebOS TV
+      - variables:
+          lg_tv_should_send: >
+            {% if not current_tv_notify or not lg_tv_enable or lg_tv_entities|length == 0 %}false
+            {% elif lg_tv_min_detection == 'always' %}true
+            {% elif lg_tv_min_detection == 'never' %}false
+            {% elif lg_tv_min_detection == 'no-person' %}true
+            {% elif lg_tv_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
+            {% elif lg_tv_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
+            {% else %}false{% endif %}
+
       - if:
           - condition: template
-            value_template: "{{ current_tv_notify and lg_tv_enable }}"
+            value_template: "{{ lg_tv_should_send }}"
           - condition: and
             conditions: !input lg_tv_conditions
         then:
-          - action: notify.lg_webos_smart_tv
-            continue_on_error: true
-            data:
-              title: "{{ lg_tv_message_title }}"
-              message: >
-                {% if video_status == 'success' and video_result %}
-                  {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
-                {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
-                {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+          - repeat:
+              count: >
+                {{ lg_tv_repeat_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input lg_tv_repeat_delay
+                - repeat:
+                    for_each: "{{ lg_tv_entities }}"
+                    sequence:
+                      - action: notify.lg_webos_smart_tv
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ repeat.item }}"
+                        data:
+                          title: "{{ lg_tv_message_title }}"
+                          message: >
+                            {% if video_status == 'success' and video_result %}
+                              {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                            {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                            {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
       
+      # 6b) TV notifications - Other Notify Services
+      - variables:
+          other_notify_should_send: >
+            {% if not current_tv_notify or other_notify_entities|length == 0 %}false
+            {% elif other_notify_min_detection == 'always' %}true
+            {% elif other_notify_min_detection == 'never' %}false
+            {% elif other_notify_min_detection == 'no-person' %}true
+            {% elif other_notify_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
+            {% elif other_notify_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
+            {% else %}false{% endif %}
+
       - if:
           - condition: template
-            value_template: "{{ current_tv_notify and other_notify_entities|length > 0 }}"
+            value_template: "{{ other_notify_should_send }}"
           - condition: and
             conditions: !input other_notify_conditions
         then:
           - repeat:
-              for_each: "{{ other_notify_entities }}"
+              count: >
+                {{ other_notify_repeat_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
               sequence:
-                - action: "{{ repeat.item }}"
-                  continue_on_error: true
-                  data:
-                    title: "{{ other_notify_title }}"
-                    message: >
-                      {% if video_status == 'success' and video_result %}
-                        {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                      {% elif detection_level == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
-                      {% elif detection_level == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
-                      {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input other_notify_repeat_delay
+                - repeat:
+                    for_each: "{{ other_notify_entities }}"
+                    sequence:
+                      - action: "{{ repeat.item }}"
+                        continue_on_error: true
+                        data:
+                          title: "{{ other_notify_title }}"
+                          message: >
+                            {% if video_status == 'success' and video_result %}
+                              {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                            {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                            {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
       
       # 7) TTS announcement
       - if:
@@ -2152,8 +2343,8 @@ action:
                           message: >
                             {% if video_status == 'success' and video_result %}
                               Achtung! {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                            {% elif detection_level == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
-                            {% elif detection_level == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
+                            {% elif verified_detection == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
                             {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
       
       # 8) Update push
@@ -2182,10 +2373,9 @@ action:
                             {% if video_status == 'no_response' %}Video-Analyse nicht möglich
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
                             {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
-                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
-                            {% if debug_info_enabled %}
-                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x)
-                            {% endif %}
+                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}{% if debug_info_enabled %}
+
+                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
