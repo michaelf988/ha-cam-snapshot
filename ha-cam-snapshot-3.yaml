@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.7.2"
+  name: "Camera Event Notification 3.7.2-1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -2055,6 +2055,7 @@ action:
                     target_width: "{{ importance_target_width }}"
                     max_tokens: "{{ importance_max_tokens }}"
                     remember: true
+                    expose_images:: true
                   response_variable: _importance_response
                 - variables:
                     _importance_result_temp: "{{ _importance_response.response_text | default('') }}"
@@ -2204,6 +2205,7 @@ action:
                     target_width: "{{ video_target_width }}"
                     max_tokens: "{{ video_max_tokens }}"
                     remember: true
+                    expose_images:: true
                   response_variable: _response
                 - variables:
                     _video_result_temp: "{{ _response.response_text | default('') }}"
