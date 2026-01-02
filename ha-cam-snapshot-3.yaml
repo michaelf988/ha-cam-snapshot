@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.7.2-2"
+  name: "Camera Event Notification 3.7.2-3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -2045,7 +2045,7 @@ action:
                 - action: llmvision.image_analyzer
                   data:
                     image_file: "{{ file_path }}"
-                    entity_id: calendar.llm_vision_timeline
+                    #entity_id: calendar.llm_vision_timeline
                     provider: !input provider
                     model: !input model
                     message: >
@@ -2195,7 +2195,7 @@ action:
                 - action: llmvision.video_analyzer
                   data:
                     video_file: "{{ video_file_path }}"
-                    entity_id: calendar.llm_vision_timeline
+                  #  entity_id: calendar.llm_vision_timeline
                     provider: !input provider
                     model: !input model
                     message: >
