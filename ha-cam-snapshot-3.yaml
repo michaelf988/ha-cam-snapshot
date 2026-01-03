@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.8.1"
+  name: "Camera Event Notification 3.8.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -1725,6 +1725,8 @@ variables:
 mode: queued
 max: 25
 max_exceeded: silent
+trace:
+  stored_traces: 30
 
 trigger:
   - platform: state
