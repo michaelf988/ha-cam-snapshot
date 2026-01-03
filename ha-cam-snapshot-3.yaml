@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 3.8.2"
+  name: "Camera Event Notification 3.8.3"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -10,8 +10,8 @@ blueprint:
     VERSION 3.8.0:
     - NEU: Integration von llmvision.remember als Abschluss-Aktion.
     - NEU: Automatische Titel-Generierung (generate_title).
+    - UPDATE: Remember nutzt Web-Pfad, Camera-Entity und Summary.
     - CODE: YAML-Anchors genutzt, um Redundanz in den Input-Descriptions zu reduzieren.
-    - UPDATE: Remember-Aktion nutzt Web-Pfad und erfolgt vor dem Abschluss-Delay.
 
   domain: automation
   source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
@@ -1725,8 +1725,6 @@ variables:
 mode: queued
 max: 25
 max_exceeded: silent
-trace:
-  stored_traces: 30
 
 trigger:
   - platform: state
@@ -2350,11 +2348,12 @@ action:
                                 volume: "{{ notification_volume_critical if final_interruption_level == 'critical' else notification_volume }}"
                                 critical: "{{ final_interruption_level == 'critical' }}"
   
-  # 9) Memory Action (moved BEFORE the final delay as requested)
+  # 9) Memory Action (moved BEFORE the final delay)
   - action: llmvision.remember
     data:
       image_file: "{{ snapshot_access_file_path }}"
-      message: >
+      camera_entity: "{{ camera_entity_snapshot }}"
+      summary: >
         {% if video_status == 'success' and video_result %}
           {{ video_result_map[video_result] | default(video_result) }}
         {% elif detection_level %}
