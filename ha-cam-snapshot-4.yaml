@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 4.0.1"
+  name: "Camera Event Notification 4.0.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -2163,6 +2163,7 @@ action:
                   then:
                     - delay: !input video_retry_delay
                 - action: llmvision.video_analyzer
+                  continue_on_error: true
                   data:
                     video_file: "{{ video_file_path }}"
                     provider: !input provider
@@ -2176,14 +2177,14 @@ action:
                     target_width: "{{ video_target_width }}"
                     max_tokens: "{{ video_max_tokens }}"
                     generate_title: "{{ store_in_timeline }}"
-                    store_in_timeline: "{{ store_in_timeline and (repeat.index == video_max_retries or _video_result_temp != 'probably-person') }}"
+                    store_in_timeline: false
                     expose_images: "{{ store_in_timeline }}"
                     response_format: json
                     structure: "{{ detection_structure }}"
                   response_variable: _response
                 - variables:
                     _video_result_temp: >
-                      {% set raw = (_response.response_text | default('')) | trim %}
+                      {% set raw = ((_response | default({})).response_text | default('')) | trim %}
                       {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
                         {% set parsed = raw | from_json %}
                         {% if parsed is mapping and parsed.classification is defined %}
@@ -2194,7 +2195,7 @@ action:
                       {% else %}
                         {{ raw }}
                       {% endif %}
-                    _video_title_temp: "{{ _response.title | default('') }}"
+                    _video_title_temp: "{{ (_response | default({})).title | default('') }}"
                     video_attempts_used: "{{ repeat.index }}"
           - variables:
               video_status: >
@@ -2211,22 +2212,26 @@ action:
                 {% elif verified_detection == 'probably-person' %}{{ current_level_probably_person }}
                 {% else %}{{ current_level_no_person }}{% endif %}
       
-      # 5b) store_in_timeline for importance-only runs (no video analysis)
-      #     When video didn't run but importance did, store the snapshot in timeline
+      # 5b) store_in_timeline: Create timeline event after analysis is complete
       - if:
           - condition: template
-            value_template: "{{ store_in_timeline and not video_should_run and current_importance }}"
+            value_template: "{{ store_in_timeline }}"
         then:
           - action: llmvision.create_event
+            continue_on_error: true
             data:
               title: >
-                {% if _importance_title_temp %}
+                {% if _video_title_temp | default('') %}
+                  {{ _video_title_temp }}
+                {% elif _importance_title_temp | default('') %}
                   {{ _importance_title_temp }}
                 {% else %}
                   Kamera Event
                 {% endif %}
               description: >
-                {% if detection_level %}
+                {% if video_status | default('disabled') == 'success' and video_result | default('') %}
+                  {{ video_result_map[video_result] | default(video_result) }}
+                {% elif detection_level | default('') %}
                   {{ video_result_map[detection_level] | default(detection_level) }}
                 {% else %}
                   Keine Analyse Ergebnisse
