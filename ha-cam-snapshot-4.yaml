@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 4.0.0"
+  name: "Camera Event Notification 4.0.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -2017,10 +2017,14 @@ action:
                   response_variable: _importance_response
                 - variables:
                     _importance_result_temp: >
-                      {% set raw = _importance_response.response_text | default('') %}
-                      {% set parsed = raw | from_json | default(none) %}
-                      {% if parsed and parsed.classification is defined %}
-                        {{ parsed.classification }}
+                      {% set raw = (_importance_response.response_text | default('')) | trim %}
+                      {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
+                        {% set parsed = raw | from_json %}
+                        {% if parsed is mapping and parsed.classification is defined %}
+                          {{ parsed.classification }}
+                        {% else %}
+                          {{ raw }}
+                        {% endif %}
                       {% else %}
                         {{ raw }}
                       {% endif %}
@@ -2179,10 +2183,14 @@ action:
                   response_variable: _response
                 - variables:
                     _video_result_temp: >
-                      {% set raw = _response.response_text | default('') %}
-                      {% set parsed = raw | from_json | default(none) %}
-                      {% if parsed and parsed.classification is defined %}
-                        {{ parsed.classification }}
+                      {% set raw = (_response.response_text | default('')) | trim %}
+                      {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
+                        {% set parsed = raw | from_json %}
+                        {% if parsed is mapping and parsed.classification is defined %}
+                          {{ parsed.classification }}
+                        {% else %}
+                          {{ raw }}
+                        {% endif %}
                       {% else %}
                         {{ raw }}
                       {% endif %}
