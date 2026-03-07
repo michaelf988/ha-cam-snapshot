@@ -1,0 +1,2420 @@
+blueprint:
+  name: "Camera Event Notification 4.0.0"
+  author: "MF"
+  homeassistant:
+    min_version: 2024.10.0
+  description: >
+    Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung. 
+    Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+    
+    VERSION 4.0.0:
+    - BREAKING: Erfordert LLMVision >= 1.6.0.
+    - NEU: Structured Output (JSON) für zuverlässigere Klassifizierung bei Wichtigkeits- und Video-Analyse.
+    - NEU: store_in_timeline ersetzt den separaten remember-Schritt (alte llmvision.remember Action entfernt).
+    - NEU: expose_images bei Analyzern für Timeline-kompatible Snapshots.
+    - UPDATE: remember → store_in_timeline (Breaking Change in LLMVision 1.6.0).
+    - UPDATE: generate_title wird nur noch bei store_in_timeline genutzt.
+    - ENTFERNT: Separater llmvision.remember Schritt (Step 9) - wird jetzt direkt über die Analyzer abgewickelt.
+    - CODE: YAML-Anchors genutzt, um Redundanz in den Input-Descriptions zu reduzieren.
+
+  domain: automation
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
+
+  input:
+    # =======================
+    # 0. DEBUGGING
+    # =======================
+    debug_info_enabled:
+      name: "🐞 Debug-Infos in Nachrichten anzeigen"
+      description: "Fügt technische Details (Szenario, Level, API-Versuche) an das Ende der Push-Nachricht an."
+      default: false
+      selector:
+        boolean: {}
+
+    # =======================
+    # 1. KAMERAS & SENSOREN
+    # =======================
+    cameras_section:
+      name: "Kameras & Sensoren"
+      description: "Konfiguration der Auslöser."
+      icon: mdi:camera
+      collapsed: true
+      input:
+        camera_entities:
+          name: "Kamera Entitäten"
+          description: "Wähle eine oder mehrere Kameras aus, von denen Bilder/Videos stammen sollen."
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: camera
+
+        trigger_state:
+          name: "Trigger Status"
+          description: "Startet, wenn die Kamera in diesen Zustand wechselt (z.B. 'recording')."
+          default: "recording"
+          selector:
+            text:
+
+        motion_sensors:
+          name: "Bewegungsmelder (optional)"
+          description: "Alternativer Auslöser. Muss exakt der Reihenfolge der Kameras entsprechen."
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: binary_sensor
+
+    # =======================
+    # 2. SPEICHERUNG
+    # =======================
+    storage_section:
+      name: "Speicherung"
+      description: "Dateipfade und Namensgebung."
+      icon: mdi:folder
+      collapsed: true
+      input:
+        timestamp_filenames:
+          name: "Zeitstempel in Dateinamen nutzen"
+          default: true
+          selector:
+            boolean:
+            
+        timestamp_format:
+          name: "Zeitstempel-Format"
+          default: "%Y-%m-%d_%H-%M-%S"
+          selector:
+            text:
+
+        snapshot_dir_fs:
+          name: "Basis-Pfad (Dateisystem)"
+          default: "/config/www/snapshots"
+          selector:
+            text:
+            
+        snapshot_dir_web:
+          name: "Basis-Pfad (Web)"
+          default: "/local/snapshots"
+          selector:
+            text:
+
+    # =======================
+    # 3. AI GRUNDEINSTELLUNGEN
+    # =======================
+    ai_base_section:
+      name: "AI Grundeinstellungen"
+      description: "Verbindung zum LLM Vision Provider."
+      icon: mdi:brain
+      collapsed: true
+      input:
+        provider:
+          name: "AI Provider"
+          selector:
+            config_entry:
+              integration: llmvision
+
+        model:
+          name: "AI Model"
+          default: "gpt-4o-mini"
+          selector:
+            text:
+
+        store_in_timeline:
+          name: "Events in Timeline speichern"
+          description: "Speichert analysierte Events in der LLM Vision Timeline. Ersetzt den bisherigen 'remember'-Schritt."
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # 3a. VIDEO-AUFNAHME EINSTELLUNGEN
+    # =======================
+    video_recording_section:
+      name: "Video-Aufnahme Einstellungen"
+      icon: mdi:video
+      collapsed: true
+      input:
+        video_duration:
+          name: "Video-Dauer (Sekunden)"
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 30
+              unit_of_measurement: seconds
+
+        video_lookback:
+          name: "Video-Rückblick (Sekunden)"
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 30
+              unit_of_measurement: seconds
+
+    # =======================
+    # 3b. WICHTIGKEITS-ANALYSE
+    # =======================
+    importance_analysis_section:
+      name: "Wichtigkeits-Analyse (Snapshot)"
+      icon: mdi:image-search
+      collapsed: true
+      input:
+        importance_target_width:
+          name: "Bild-Breite (Pixel)"
+          default: 1280
+          selector:
+            number:
+              min: 512
+              max: 3840
+
+        importance_max_tokens:
+          name: "Max Tokens"
+          default: 4000
+          selector:
+            number:
+              min: 1
+              max: 15000
+
+        importance_max_retries:
+          name: "Max Versuche"
+          default: 2
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        importance_retry_delay:
+          name: "Pause zwischen Versuchen"
+          default: { seconds: 1 }
+          selector:
+            duration: {}
+
+        importance_prompt:
+          name: "Wichtigkeits-Analyse Prompt"
+          default: >
+            CONTEXT: Security camera snapshot from a private property surveillance system.
+            Current time: {{ now().strftime('%H:%M') }}
+            
+            TASK: Analyze this single frame for human presence.
+            
+            CLASSIFICATION:
+            - "no-person" = No human detected, no security concern
+            - "probably-person" = Unclear, possibly a person, shadows or partial view
+            - "definitely-person" = Clear human presence detected
+            
+            Consider: Body shape, movement patterns typical of humans, size relative to environment.
+            Ignore: Pets, vehicles (unless person visible inside), shadows without clear human form.
+            
+            Respond with your classification in the required JSON format.
+          selector:
+            text:
+              multiline: true
+
+    # =======================
+    # 3c. VIDEO-ANALYSE
+    # =======================
+    video_analysis_section:
+      name: "Video-Analyse (Verifikation)"
+      icon: mdi:video-check
+      collapsed: true
+      input:
+        video_target_width:
+          name: "Bild-Breite (Pixel)"
+          default: 1280
+          selector:
+            number:
+              min: 512
+              max: 3840
+
+        video_max_frames:
+          name: "Max Frames"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        video_max_tokens:
+          name: "Max Tokens"
+          default: 5000
+          selector:
+            number:
+              min: 1
+              max: 15000
+
+        video_max_retries:
+          name: "Max Versuche"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        video_retry_delay:
+          name: "Pause zwischen Versuchen"
+          default: { seconds: 2 }
+          selector:
+            duration: {}
+
+        video_prompt:
+          name: "Video-Analyse Prompt"
+          default: >
+            CONTEXT: Security camera video recording from private property.
+            Current time: {{ now().strftime('%H:%M') }}
+            
+            TASK: Analyze the video sequence for HUMAN presence.
+            
+            CLASSIFICATION:
+            - "definitely-person" = Clear human presence (single or multiple)
+            - "probably-person" = Unclear, possibly a person, bad lighting
+            - "no-person" = No human visible (includes pets, vehicles, wind, no motion)
+            
+            INSTRUCTIONS:
+            - If you see a vehicle BUT NO PERSON inside/outside: choose "no-person".
+            - If you see an animal BUT NO PERSON: choose "no-person".
+            - Only choose "definitely-person" if you are sure it is a human.
+            
+            Respond with your classification in the required JSON format.
+          selector:
+            text:
+              multiline: true
+
+    # =======================
+    # 4. TTS GRUNDEINSTELLUNGEN
+    # =======================
+    tts_base_section:
+      name: "Text-to-Speech Grundeinstellungen"
+      icon: mdi:volume-high
+      collapsed: true
+      input:
+        tts_target_entity:
+          name: "TTS Service"
+          selector:
+            entity:
+              filter:
+                domain: tts
+
+        tts_media_players:
+          name: "Lautsprecher für TTS"
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: media_player
+
+        tts_volume:
+          name: "TTS Lautstärke"
+          default: 0.7
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.05
+
+        tts_repeat_count:
+          name: "TTS Wiederholungen"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+
+        tts_repeat_delay:
+          name: "Pause zwischen Wiederholungen"
+          default: { seconds: 2 }
+          selector:
+            duration: {}
+
+    # =======================
+    # 5. MOBILE BENACHRICHTIGUNGEN
+    # =======================
+    mobile_notifications_section:
+      name: "Mobile Benachrichtigungen"
+      icon: mdi:cellphone
+      collapsed: true
+      input:
+        notify_device:
+          name: "Mobile Geräte"
+          selector:
+            device:
+              multiple: true
+              filter:
+                integration: mobile_app
+
+        tap_navigate:
+          name: "Tap / Click Action Path"
+          default: "/lovelace/cameras"
+          selector:
+            text:
+
+        delay_notification:
+          name: "Cooldown zwischen Benachrichtigungen"
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 600
+              unit_of_measurement: seconds
+
+        alarm_repetition_count:
+          name: "Alarm-Wiederholungen (Anzahl)"
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 20
+
+        alarm_repetition_delay:
+          name: "Pause zwischen Alarm-Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
+
+    # =======================
+    # 5a. BENACHRICHTIGUNGSTÖNE
+    # =======================
+    notification_sounds_section:
+      name: "Benachrichtigungstöne"
+      icon: mdi:bell-ring
+      collapsed: true
+      input:
+        notification_sound:
+          name: "Ton (Normal)"
+          default: "LiquidDetected.caf"
+          selector:
+            text:
+
+        notification_volume:
+          name: "Lautstärke (Normal)"
+          default: 0.7
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.1
+
+        notification_sound_critical:
+          name: "Ton (Critical)"
+          default: "alarm.caf"
+          selector:
+            text:
+
+        notification_volume_critical:
+          name: "Lautstärke (Critical)"
+          default: 1.0
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.1
+
+    # =======================
+    # 5b. ACTION BUTTONS
+    # =======================
+    action_buttons_section:
+      name: "Action Buttons"
+      icon: mdi:gesture-tap-button
+      collapsed: true
+      input:
+        action1_enabled:
+          name: "Button 1 aktivieren"
+          default: true
+          selector:
+            boolean:
+        action1_title:
+          name: "Button 1 Text"
+          default: "Öffnen"
+          selector:
+            text:
+        action1_uri:
+          name: "Button 1 URI (optional)"
+          default: ""
+          selector:
+            text:
+        action1_icon:
+          name: "Button 1 Icon (optional)"
+          default: ""
+          selector:
+            text:
+        action1_destructive:
+          name: "Button 1 Rot markieren"
+          default: false
+          selector:
+            boolean:
+
+        action2_enabled:
+          name: "Button 2 aktivieren"
+          default: true
+          selector:
+            boolean:
+        action2_title:
+          name: "Button 2 Text"
+          default: "Snooze 15min"
+          selector:
+            text:
+        action2_uri:
+          name: "Button 2 URI (optional)"
+          default: ""
+          selector:
+            text:
+        action2_icon:
+          name: "Button 2 Icon (optional)"
+          default: ""
+          selector:
+            text:
+        action2_destructive:
+          name: "Button 2 Rot markieren"
+          default: false
+          selector:
+            boolean:
+
+        action3_enabled:
+          name: "Button 3 aktivieren"
+          default: false
+          selector:
+            boolean:
+        action3_title:
+          name: "Button 3 Text"
+          default: "Alarm aus"
+          selector:
+            text:
+        action3_uri:
+          name: "Button 3 URI (optional)"
+          default: ""
+          selector:
+            text:
+        action3_icon:
+          name: "Button 3 Icon (optional)"
+          default: ""
+          selector:
+            text:
+        action3_destructive:
+          name: "Button 3 Rot markieren"
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # 6. TV & WEITERE GERÄTE
+    # =======================
+    additional_notifications_section:
+      name: "TV & weitere Benachrichtigungen"
+      icon: mdi:television
+      collapsed: true
+      input:
+        lg_tv_enable:
+          name: "LG WebOS TV Benachrichtigungen"
+          default: false
+          selector:
+            boolean:
+
+        lg_tv_entities:
+          name: "LG WebOS TV Geräte"
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: media_player
+                integration: webostv
+
+        lg_tv_conditions:
+          name: "Bedingungen für LG TV-Benachrichtigungen"
+          default: []
+          selector:
+            condition:
+
+        lg_tv_message_title:
+          name: "LG TV Nachricht Titel"
+          default: "Sicherheitswarnung"
+          selector:
+            text:
+
+        lg_tv_min_detection:
+          name: "LG TV ab Detection-Level"
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        lg_tv_repeat_count:
+          name: "LG TV Wiederholungen"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 20
+
+        lg_tv_repeat_delay:
+          name: "LG TV Pause zwischen Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
+
+        other_notify_entities:
+          name: "Weitere Notify Services (optional)"
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: notify
+
+        other_notify_conditions:
+          name: "Bedingungen für weitere Benachrichtigungen"
+          default: []
+          selector:
+            condition:
+
+        other_notify_title:
+          name: "Weitere Services - Titel"
+          default: "Sicherheitswarnung"
+          selector:
+            text:
+
+        other_notify_min_detection:
+          name: "Weitere Services ab Detection-Level"
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        other_notify_repeat_count:
+          name: "Weitere Services Wiederholungen"
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 20
+
+        other_notify_repeat_delay:
+          name: "Weitere Services Pause zwischen Wiederholungen"
+          default: { seconds: 3 }
+          selector:
+            duration: {}
+
+    # =======================
+    # 7. SZENARIO-STEUERUNG
+    # =======================
+    scenario_control_section:
+      name: "Szenario-Steuerung"
+      icon: mdi:home-automation
+      collapsed: false
+      input:
+        scenario_helper:
+          name: "Szenario 6 Helper Entity (Override)"
+          description: "Ein Input Boolean. Wenn dieser 'AN' ist, wird SOFORT Szenario 6 erzwungen."
+          default: "input_boolean.cam_event_notify_helper"
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+
+        scenario_fallback:
+          name: "Fallback Szenario"
+          default: "3"
+          selector:
+            select:
+              options:
+                - label: "Szenario 1"
+                  value: "1"
+                - label: "Szenario 2"
+                  value: "2"
+                - label: "Szenario 3 (Minimal)"
+                  value: "3"
+                - label: "Szenario 4"
+                  value: "4"
+                - label: "Szenario 4a"
+                  value: "4a"
+                - label: "Szenario 5"
+                  value: "5"
+                - label: "Szenario 6"
+                  value: "6"
+
+    # =======================
+    # SZENARIO 1 (Definition der Anchor)
+    # =======================
+    scenario_1_section:
+      name: "Szenario 1: Anwesend, Alarmanlage intern scharf"
+      icon: mdi:shield-home
+      collapsed: true
+      input:
+        s1_conditions:
+          name: "Aktivierungsbedingungen"
+          description: &desc_conditions "Definiere hier, wann dieses Szenario aktiv sein soll."
+          default: []
+          selector:
+            condition:
+
+        s1_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s1_video:
+          name: "Video aufnehmen"
+          default: true
+          selector:
+            boolean:
+
+        s1_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: &desc_importance "Aktiviert die erste AI-Prüfung des Snapshots."
+          default: true
+          selector:
+            boolean:
+
+        s1_level_no_person:
+          name: "Level bei: Keine Person"
+          description: &desc_level_none "Dringlichkeit der Benachrichtigung, wenn AI KEINE Person findet."
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s1_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: &desc_level_prob "Dringlichkeit, wenn AI sich unsicher ist."
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s1_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: &desc_level_def "Dringlichkeit bei eindeutiger Personenerkennung."
+          default: "critical"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s1_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: &desc_gate_enable "Wenn aktiv, werden Nachrichten unterhalb des Schwellwerts KOMPLETT unterdrückt."
+          default: true
+          selector:
+            boolean:
+
+        s1_gate_threshold:
+          name: "Gate Schwellwert"
+          description: &desc_gate_thresh "Alles unter diesem Level wird ignoriert, wenn Gate aktiv ist."
+          default: "passive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s1_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s1_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: &desc_video_min "Startet die teure Video-Analyse erst ab einem bestimmten Verdacht im Snapshot."
+          default: "probably-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s1_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s1_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: &desc_tts "Lautsprecheransage, aber nur wenn das Level 'critical' erreicht wird."
+          default: true
+          selector:
+            boolean:
+
+        s1_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: &desc_alarm_mode "Sendet mehrere Push-Nachrichten hintereinander. Greift nur, wenn Level >= time-sensitive."
+          default: true
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 2
+    # =======================
+    scenario_2_section:
+      name: "Szenario 2: Anwesend, spät abends, unscharf"
+      icon: mdi:weather-night
+      collapsed: true
+      input:
+        s2_conditions:
+          name: "Aktivierungsbedingungen"
+          description: *desc_conditions
+          default: []
+          selector:
+            condition:
+
+        s2_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s2_video:
+          name: "Video aufnehmen"
+          default: true
+          selector:
+            boolean:
+
+        s2_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: *desc_importance
+          default: true
+          selector:
+            boolean:
+
+        s2_level_no_person:
+          name: "Level bei: Keine Person"
+          description: *desc_level_none
+          default: "passive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s2_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: *desc_level_prob
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s2_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: *desc_level_def
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s2_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: *desc_gate_enable
+          default: true
+          selector:
+            boolean:
+
+        s2_gate_threshold:
+          name: "Gate Schwellwert"
+          description: *desc_gate_thresh
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s2_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s2_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: *desc_video_min
+          default: "definitely-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s2_tv_notify:
+          name: "TV Benachrichtigung"
+          default: true
+          selector:
+            boolean:
+
+        s2_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: *desc_tts
+          default: false
+          selector:
+            boolean:
+
+        s2_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: *desc_alarm_mode
+          default: false
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 3
+    # =======================
+    scenario_3_section:
+      name: "Szenario 3: Anwesend, tagsüber, unscharf"
+      icon: mdi:weather-sunny
+      collapsed: true
+      input:
+        s3_conditions:
+          name: "Aktivierungsbedingungen"
+          description: *desc_conditions
+          default: []
+          selector:
+            condition:
+
+        s3_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s3_video:
+          name: "Video aufnehmen"
+          default: false
+          selector:
+            boolean:
+
+        s3_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: *desc_importance
+          default: false
+          selector:
+            boolean:
+
+        s3_level_no_person:
+          name: "Level bei: Keine Person"
+          description: *desc_level_none
+          default: "passive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s3_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: *desc_level_prob
+          default: "passive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s3_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: *desc_level_def
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s3_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: *desc_gate_enable
+          default: false
+          selector:
+            boolean:
+
+        s3_gate_threshold:
+          name: "Gate Schwellwert"
+          description: *desc_gate_thresh
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s3_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s3_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: *desc_video_min
+          default: "never"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s3_tv_notify:
+          name: "TV Benachrichtigung"
+          default: true
+          selector:
+            boolean:
+
+        s3_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: *desc_tts
+          default: false
+          selector:
+            boolean:
+
+        s3_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: *desc_alarm_mode
+          default: false
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 4
+    # =======================
+    scenario_4_section:
+      name: "Szenario 4: Abwesend, Alarmanlage extern scharf, spät abends"
+      icon: mdi:shield-lock
+      collapsed: true
+      input:
+        s4_conditions:
+          name: "Aktivierungsbedingungen"
+          description: *desc_conditions
+          default: []
+          selector:
+            condition:
+
+        s4_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s4_video:
+          name: "Video aufnehmen"
+          default: true
+          selector:
+            boolean:
+
+        s4_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: *desc_importance
+          default: true
+          selector:
+            boolean:
+
+        s4_level_no_person:
+          name: "Level bei: Keine Person"
+          description: *desc_level_none
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: *desc_level_prob
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: *desc_level_def
+          default: "critical"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: *desc_gate_enable
+          default: true
+          selector:
+            boolean:
+
+        s4_gate_threshold:
+          name: "Gate Schwellwert"
+          description: *desc_gate_thresh
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s4_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: *desc_video_min
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s4_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s4_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: *desc_tts
+          default: false
+          selector:
+            boolean:
+
+        s4_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: *desc_alarm_mode
+          default: true
+          selector:
+            boolean:
+
+        s4_alarm_conditions:
+          name: "Zusätzliche Alarm-Bedingungen"
+          description: "Weitere Checks, bevor der Alarm-Modus loslegt."
+          default: []
+          selector:
+            condition:
+
+    # =======================
+    # SZENARIO 4a
+    # =======================
+    scenario_4a_section:
+      name: "Szenario 4a: Abwesend, Alarmanlage extern scharf, tagsüber"
+      icon: mdi:shield-sun
+      collapsed: true
+      input:
+        s4a_conditions:
+          name: "Aktivierungsbedingungen"
+          description: *desc_conditions
+          default: []
+          selector:
+            condition:
+
+        s4a_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s4a_video:
+          name: "Video aufnehmen"
+          default: true
+          selector:
+            boolean:
+
+        s4a_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: *desc_importance
+          default: true
+          selector:
+            boolean:
+
+        s4a_level_no_person:
+          name: "Level bei: Keine Person"
+          description: *desc_level_none
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: *desc_level_prob
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: *desc_level_def
+          default: "critical"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: *desc_gate_enable
+          default: true
+          selector:
+            boolean:
+
+        s4a_gate_threshold:
+          name: "Gate Schwellwert"
+          description: *desc_gate_thresh
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s4a_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s4a_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: *desc_video_min
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s4a_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s4a_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: *desc_tts
+          default: false
+          selector:
+            boolean:
+
+        s4a_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: *desc_alarm_mode
+          default: true
+          selector:
+            boolean:
+
+        s4a_alarm_conditions:
+          name: "Zusätzliche Alarm-Bedingungen"
+          description: "Weitere Checks, bevor der Alarm-Modus loslegt."
+          default: []
+          selector:
+            condition:
+
+    # =======================
+    # SZENARIO 5
+    # =======================
+    scenario_5_section:
+      name: "Szenario 5: Abwesend, Alarmanlage nicht scharf"
+      icon: mdi:home-outline
+      collapsed: true
+      input:
+        s5_conditions:
+          name: "Aktivierungsbedingungen"
+          description: *desc_conditions
+          default: []
+          selector:
+            condition:
+
+        s5_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s5_video:
+          name: "Video aufnehmen"
+          default: true
+          selector:
+            boolean:
+
+        s5_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: *desc_importance
+          default: true
+          selector:
+            boolean:
+
+        s5_level_no_person:
+          name: "Level bei: Keine Person"
+          description: *desc_level_none
+          default: "passive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s5_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: *desc_level_prob
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s5_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: *desc_level_def
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s5_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: *desc_gate_enable
+          default: false
+          selector:
+            boolean:
+
+        s5_gate_threshold:
+          name: "Gate Schwellwert"
+          description: *desc_gate_thresh
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s5_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s5_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: *desc_video_min
+          default: "probably-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s5_tv_notify:
+          name: "TV Benachrichtigung"
+          default: false
+          selector:
+            boolean:
+
+        s5_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: *desc_tts
+          default: false
+          selector:
+            boolean:
+
+        s5_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: *desc_alarm_mode
+          default: false
+          selector:
+            boolean:
+
+    # =======================
+    # SZENARIO 6
+    # =======================
+    scenario_6_section:
+      name: "Szenario 6: Manueller Modus"
+      icon: mdi:hand-pointing-right
+      collapsed: true
+      input:
+        s6_conditions:
+          name: "Aktivierungsbedingungen"
+          description: *desc_conditions
+          default: []
+          selector:
+            condition:
+
+        s6_snapshot:
+          name: "Snapshot erstellen"
+          default: true
+          selector:
+            boolean:
+
+        s6_video:
+          name: "Video aufnehmen"
+          default: true
+          selector:
+            boolean:
+
+        s6_importance_check:
+          name: "Wichtigkeitsanalyse (AI)"
+          description: *desc_importance
+          default: true
+          selector:
+            boolean:
+
+        s6_level_no_person:
+          name: "Level bei: Keine Person"
+          description: *desc_level_none
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s6_level_probably_person:
+          name: "Level bei: Wahrscheinlich Person"
+          description: *desc_level_prob
+          default: "time-sensitive"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s6_level_definitely_person:
+          name: "Level bei: Definitiv Person"
+          description: *desc_level_def
+          default: "critical"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s6_gate_enable:
+          name: "Gate aktivieren (Filter)"
+          description: *desc_gate_enable
+          default: false
+          selector:
+            boolean:
+
+        s6_gate_threshold:
+          name: "Gate Schwellwert"
+          description: *desc_gate_thresh
+          default: "active"
+          selector:
+            select:
+              options: [passive, active, time-sensitive, critical]
+
+        s6_mobile_push:
+          name: "Mobile Push senden"
+          default: true
+          selector:
+            boolean:
+
+        s6_video_min_detection:
+          name: "Video-Analyse ab Detection-Level"
+          description: *desc_video_min
+          default: "no-person"
+          selector:
+            select:
+              options:
+                - label: "Immer"
+                  value: "always"
+                - label: "Ab: Keine Person"
+                  value: "no-person"
+                - label: "Ab: Wahrscheinlich Person"
+                  value: "probably-person"
+                - label: "Ab: Definitiv Person"
+                  value: "definitely-person"
+                - label: "Nie"
+                  value: "never"
+
+        s6_tv_notify:
+          name: "TV Benachrichtigung"
+          default: true
+          selector:
+            boolean:
+
+        s6_tts_enable:
+          name: "Sprachansage (nur bei Critical)"
+          description: *desc_tts
+          default: true
+          selector:
+            boolean:
+
+        s6_alarm_mode:
+          name: "Alarm-Wiederholungen aktivieren"
+          description: *desc_alarm_mode
+          default: true
+          selector:
+            boolean:
+
+# ================= Variables =================
+variables:
+  response:
+    response_text: ""
+  
+  # --- Debug Variable ---
+  debug_info_enabled: !input debug_info_enabled
+
+  video_result_map:
+    definitely-person: "Person erkannt"
+    probably-person: "Möglicherweise Person"
+    no-person: "Keine Person"
+
+  camera_entities_list: !input camera_entities
+  motion_sensors_list: !input motion_sensors
+  notify_devices: !input notify_device
+  
+  provider: !input provider
+  model: !input model
+  store_in_timeline: !input store_in_timeline
+  
+  video_duration: !input video_duration
+  video_lookback: !input video_lookback
+  
+  importance_target_width: !input importance_target_width
+  importance_max_tokens: !input importance_max_tokens
+  importance_max_retries: !input importance_max_retries
+  importance_retry_delay: !input importance_retry_delay
+  importance_prompt: !input importance_prompt
+  
+  video_target_width: !input video_target_width
+  video_max_frames: !input video_max_frames
+  video_max_tokens: !input video_max_tokens
+  video_max_retries: !input video_max_retries
+  video_retry_delay: !input video_retry_delay
+  video_prompt: !input video_prompt
+  
+  # Structured Output: JSON schema for classification responses
+  detection_structure:
+    type: object
+    properties:
+      classification:
+        type: string
+        enum:
+          - "no-person"
+          - "probably-person"
+          - "definitely-person"
+    required:
+      - classification
+
+  timestamp_filenames: !input timestamp_filenames
+  timestamp_format: !input timestamp_format
+  snapshot_dir_fs_base: !input snapshot_dir_fs
+  snapshot_dir_web_base: !input snapshot_dir_web
+  
+  tap_navigate: !input tap_navigate
+  notification_sound: !input notification_sound
+  notification_volume: !input notification_volume
+  notification_sound_critical: !input notification_sound_critical
+  notification_volume_critical: !input notification_volume_critical
+  delay_notification: !input delay_notification
+  alarm_repetition_count: !input alarm_repetition_count
+  alarm_repetition_delay: !input alarm_repetition_delay
+  
+  tts_target_entity: !input tts_target_entity
+  tts_media_players: !input tts_media_players
+  tts_volume: !input tts_volume
+  tts_repeat_count: !input tts_repeat_count
+  tts_repeat_delay: !input tts_repeat_delay
+  
+  lg_tv_enable: !input lg_tv_enable
+  lg_tv_entities: !input lg_tv_entities
+  lg_tv_conditions: !input lg_tv_conditions
+  lg_tv_message_title: !input lg_tv_message_title
+  lg_tv_min_detection: !input lg_tv_min_detection
+  lg_tv_repeat_count: !input lg_tv_repeat_count
+  lg_tv_repeat_delay: !input lg_tv_repeat_delay
+  
+  other_notify_entities: !input other_notify_entities
+  other_notify_conditions: !input other_notify_conditions
+  other_notify_title: !input other_notify_title
+  other_notify_min_detection: !input other_notify_min_detection
+  other_notify_repeat_count: !input other_notify_repeat_count
+  other_notify_repeat_delay: !input other_notify_repeat_delay
+  
+  action1_enabled: !input action1_enabled
+  action1_title: !input action1_title
+  action1_uri: !input action1_uri
+  action1_icon: !input action1_icon
+  action1_destructive: !input action1_destructive
+  action2_enabled: !input action2_enabled
+  action2_title: !input action2_title
+  action2_uri: !input action2_uri
+  action2_icon: !input action2_icon
+  action2_destructive: !input action2_destructive
+  action3_enabled: !input action3_enabled
+  action3_title: !input action3_title
+  action3_uri: !input action3_uri
+  action3_icon: !input action3_icon
+  action3_destructive: !input action3_destructive
+  
+  scenario_helper: !input scenario_helper
+  scenario_fallback: !input scenario_fallback
+  
+  s1_conditions: !input s1_conditions
+  s1_snapshot: !input s1_snapshot
+  s1_video: !input s1_video
+  s1_importance_check: !input s1_importance_check
+  s1_level_no_person: !input s1_level_no_person
+  s1_level_probably_person: !input s1_level_probably_person
+  s1_level_definitely_person: !input s1_level_definitely_person
+  s1_gate_enable: !input s1_gate_enable
+  s1_gate_threshold: !input s1_gate_threshold
+  s1_mobile_push: !input s1_mobile_push
+  s1_video_min_detection: !input s1_video_min_detection
+  s1_tv_notify: !input s1_tv_notify
+  s1_tts_enable: !input s1_tts_enable
+  s1_alarm_mode: !input s1_alarm_mode
+  
+  s2_conditions: !input s2_conditions
+  s2_snapshot: !input s2_snapshot
+  s2_video: !input s2_video
+  s2_importance_check: !input s2_importance_check
+  s2_level_no_person: !input s2_level_no_person
+  s2_level_probably_person: !input s2_level_probably_person
+  s2_level_definitely_person: !input s2_level_definitely_person
+  s2_gate_enable: !input s2_gate_enable
+  s2_gate_threshold: !input s2_gate_threshold
+  s2_mobile_push: !input s2_mobile_push
+  s2_video_min_detection: !input s2_video_min_detection
+  s2_tv_notify: !input s2_tv_notify
+  s2_tts_enable: !input s2_tts_enable
+  s2_alarm_mode: !input s2_alarm_mode
+  
+  s3_conditions: !input s3_conditions
+  s3_snapshot: !input s3_snapshot
+  s3_video: !input s3_video
+  s3_importance_check: !input s3_importance_check
+  s3_level_no_person: !input s3_level_no_person
+  s3_level_probably_person: !input s3_level_probably_person
+  s3_level_definitely_person: !input s3_level_definitely_person
+  s3_gate_enable: !input s3_gate_enable
+  s3_gate_threshold: !input s3_gate_threshold
+  s3_mobile_push: !input s3_mobile_push
+  s3_video_min_detection: !input s3_video_min_detection
+  s3_tv_notify: !input s3_tv_notify
+  s3_tts_enable: !input s3_tts_enable
+  s3_alarm_mode: !input s3_alarm_mode
+  
+  s4_conditions: !input s4_conditions
+  s4_snapshot: !input s4_snapshot
+  s4_video: !input s4_video
+  s4_importance_check: !input s4_importance_check
+  s4_level_no_person: !input s4_level_no_person
+  s4_level_probably_person: !input s4_level_probably_person
+  s4_level_definitely_person: !input s4_level_definitely_person
+  s4_gate_enable: !input s4_gate_enable
+  s4_gate_threshold: !input s4_gate_threshold
+  s4_mobile_push: !input s4_mobile_push
+  s4_video_min_detection: !input s4_video_min_detection
+  s4_tv_notify: !input s4_tv_notify
+  s4_tts_enable: !input s4_tts_enable
+  s4_alarm_mode: !input s4_alarm_mode
+  s4_alarm_conditions: !input s4_alarm_conditions
+  
+  s4a_conditions: !input s4a_conditions
+  s4a_snapshot: !input s4a_snapshot
+  s4a_video: !input s4a_video
+  s4a_importance_check: !input s4a_importance_check
+  s4a_level_no_person: !input s4a_level_no_person
+  s4a_level_probably_person: !input s4a_level_probably_person
+  s4a_level_definitely_person: !input s4a_level_definitely_person
+  s4a_gate_enable: !input s4a_gate_enable
+  s4a_gate_threshold: !input s4a_gate_threshold
+  s4a_mobile_push: !input s4a_mobile_push
+  s4a_video_min_detection: !input s4a_video_min_detection
+  s4a_tv_notify: !input s4a_tv_notify
+  s4a_tts_enable: !input s4a_tts_enable
+  s4a_alarm_mode: !input s4a_alarm_mode
+  s4a_alarm_conditions: !input s4a_alarm_conditions
+  
+  s5_conditions: !input s5_conditions
+  s5_snapshot: !input s5_snapshot
+  s5_video: !input s5_video
+  s5_importance_check: !input s5_importance_check
+  s5_level_no_person: !input s5_level_no_person
+  s5_level_probably_person: !input s5_level_probably_person
+  s5_level_definitely_person: !input s5_level_definitely_person
+  s5_gate_enable: !input s5_gate_enable
+  s5_gate_threshold: !input s5_gate_threshold
+  s5_mobile_push: !input s5_mobile_push
+  s5_video_min_detection: !input s5_video_min_detection
+  s5_tv_notify: !input s5_tv_notify
+  s5_tts_enable: !input s5_tts_enable
+  s5_alarm_mode: !input s5_alarm_mode
+  
+  s6_conditions: !input s6_conditions
+  s6_snapshot: !input s6_snapshot
+  s6_video: !input s6_video
+  s6_importance_check: !input s6_importance_check
+  s6_level_no_person: !input s6_level_no_person
+  s6_level_probably_person: !input s6_level_probably_person
+  s6_level_definitely_person: !input s6_level_definitely_person
+  s6_gate_enable: !input s6_gate_enable
+  s6_gate_threshold: !input s6_gate_threshold
+  s6_mobile_push: !input s6_mobile_push
+  s6_video_min_detection: !input s6_video_min_detection
+  s6_tv_notify: !input s6_tv_notify
+  s6_tts_enable: !input s6_tts_enable
+  s6_alarm_mode: !input s6_alarm_mode
+  
+  camera_entity_snapshot: >
+    {% if trigger is defined and trigger.entity_id %}
+      {% set tid = trigger.entity_id %}
+      {% if tid.startswith('binary_sensor') and (tid in motion_sensors_list) %}
+        {% set i = motion_sensors_list.index(tid) %}
+        {{ camera_entities_list[i] if camera_entities_list|length > i else (camera_entities_list[0] if camera_entities_list|length>0 else '') }}
+      {% elif tid.startswith('camera.') %}
+        {{ tid }}
+      {% else %}
+        {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
+      {% endif %}
+    {% else %}
+      {{ camera_entities_list[0] if camera_entities_list|length>0 else '' }}
+    {% endif %}
+  
+  camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
+  camera_file_path: "{{ camera_friendly | slugify }}"
+  snapshot_dir_fs_final: "{{ (snapshot_dir_fs_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
+  snapshot_dir_web_final: "{{ (snapshot_dir_web_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
+  
+  filename_base: "{{ (timestamp_filenames and now().strftime(timestamp_format) or 'last_motion') }}"
+  
+  snapshot_filename: "{{ filename_base ~ '.jpg' }}"
+  file_path: "{{ snapshot_dir_fs_final ~ '/' ~ snapshot_filename }}"
+  snapshot_access_file_path: "{{ snapshot_dir_web_final ~ '/' ~ snapshot_filename }}"
+  
+  video_filename: "{{ filename_base ~ '.mp4' }}"
+  video_file_path: "{{ snapshot_dir_fs_final ~ '/' ~ video_filename }}"
+  
+  label: "Bewegung erkannt"
+  camera: "{{ camera_friendly }}"
+  notification_tag: "{{ camera_file_path ~ '_' ~ now().timestamp()|int }}"
+  
+  level_rank: "{{ {'passive':0,'active':1,'time-sensitive':2,'critical':3} }}"
+  detection_rank: "{{ {'no-person':0,'probably-person':1,'definitely-person':2} }}"
+  
+  device_name_map: >
+    {% set ns = namespace(device_names=[]) %}
+    {% for dev in (notify_devices or []) %}
+      {% set name = device_attr(dev, 'name') | default('', true) %}
+      {% set slug = (name | slugify) | default('', true) %}
+      {% if slug and (slug | length > 0) %}
+        {% set ns.device_names = ns.device_names + ['mobile_app_' ~ slug] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.device_names }}
+  
+  notify_services_all: "{{ device_name_map }}"
+
+mode: queued
+max: 25
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input camera_entities
+    to: !input trigger_state
+    id: "camera_trigger"
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "on"
+    id: "motion_sensor_trigger"
+
+action:
+  # Step 0: Szenario-Bestimmung
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ scenario_helper and is_state(scenario_helper, 'on') }}"
+        sequence:
+          - variables:
+              active_scenario: "6"
+      - conditions: !input s1_conditions
+        sequence:
+          - variables:
+              active_scenario: "1"
+      - conditions: !input s2_conditions
+        sequence:
+          - variables:
+              active_scenario: "2"
+      - conditions: !input s3_conditions
+        sequence:
+          - variables:
+              active_scenario: "3"
+      - conditions: !input s4_conditions
+        sequence:
+          - variables:
+              active_scenario: "4"
+      - conditions: !input s4a_conditions
+        sequence:
+          - variables:
+              active_scenario: "4a"
+      - conditions: !input s5_conditions
+        sequence:
+          - variables:
+              active_scenario: "5"
+      - conditions: !input s6_conditions
+        sequence:
+          - variables:
+              active_scenario: "6"
+    default:
+      - variables:
+          active_scenario: !input scenario_fallback
+  
+  # Load scenario settings
+  - variables:
+      current_snapshot: >
+        {% if active_scenario == '1' %}{{ s1_snapshot }}
+        {% elif active_scenario == '2' %}{{ s2_snapshot }}
+        {% elif active_scenario == '3' %}{{ s3_snapshot }}
+        {% elif active_scenario == '4' %}{{ s4_snapshot }}
+        {% elif active_scenario == '4a' %}{{ s4a_snapshot }}
+        {% elif active_scenario == '5' %}{{ s5_snapshot }}
+        {% elif active_scenario == '6' %}{{ s6_snapshot }}
+        {% else %}true{% endif %}
+      current_video: >
+        {% if active_scenario == '1' %}{{ s1_video }}
+        {% elif active_scenario == '2' %}{{ s2_video }}
+        {% elif active_scenario == '3' %}{{ s3_video }}
+        {% elif active_scenario == '4' %}{{ s4_video }}
+        {% elif active_scenario == '4a' %}{{ s4a_video }}
+        {% elif active_scenario == '5' %}{{ s5_video }}
+        {% elif active_scenario == '6' %}{{ s6_video }}
+        {% else %}true{% endif %}
+      current_importance: >
+        {% if active_scenario == '1' %}{{ s1_importance_check }}
+        {% elif active_scenario == '2' %}{{ s2_importance_check }}
+        {% elif active_scenario == '3' %}{{ s3_importance_check }}
+        {% elif active_scenario == '4' %}{{ s4_importance_check }}
+        {% elif active_scenario == '4a' %}{{ s4a_importance_check }}
+        {% elif active_scenario == '5' %}{{ s5_importance_check }}
+        {% elif active_scenario == '6' %}{{ s6_importance_check }}
+        {% else %}false{% endif %}
+      current_level_no_person: >
+        {% if active_scenario == '1' %}{{ s1_level_no_person }}
+        {% elif active_scenario == '2' %}{{ s2_level_no_person }}
+        {% elif active_scenario == '3' %}{{ s3_level_no_person }}
+        {% elif active_scenario == '4' %}{{ s4_level_no_person }}
+        {% elif active_scenario == '4a' %}{{ s4a_level_no_person }}
+        {% elif active_scenario == '5' %}{{ s5_level_no_person }}
+        {% elif active_scenario == '6' %}{{ s6_level_no_person }}
+        {% else %}passive{% endif %}
+      current_level_probably_person: >
+        {% if active_scenario == '1' %}{{ s1_level_probably_person }}
+        {% elif active_scenario == '2' %}{{ s2_level_probably_person }}
+        {% elif active_scenario == '3' %}{{ s3_level_probably_person }}
+        {% elif active_scenario == '4' %}{{ s4_level_probably_person }}
+        {% elif active_scenario == '4a' %}{{ s4a_level_probably_person }}
+        {% elif active_scenario == '5' %}{{ s5_level_probably_person }}
+        {% elif active_scenario == '6' %}{{ s6_level_probably_person }}
+        {% else %}active{% endif %}
+      current_level_definitely_person: >
+        {% if active_scenario == '1' %}{{ s1_level_definitely_person }}
+        {% elif active_scenario == '2' %}{{ s2_level_definitely_person }}
+        {% elif active_scenario == '3' %}{{ s3_level_definitely_person }}
+        {% elif active_scenario == '4' %}{{ s4_level_definitely_person }}
+        {% elif active_scenario == '4a' %}{{ s4a_level_definitely_person }}
+        {% elif active_scenario == '5' %}{{ s5_level_definitely_person }}
+        {% elif active_scenario == '6' %}{{ s6_level_definitely_person }}
+        {% else %}critical{% endif %}
+      current_gate_enable: >
+        {% if active_scenario == '1' %}{{ s1_gate_enable }}
+        {% elif active_scenario == '2' %}{{ s2_gate_enable }}
+        {% elif active_scenario == '3' %}{{ s3_gate_enable }}
+        {% elif active_scenario == '4' %}{{ s4_gate_enable }}
+        {% elif active_scenario == '4a' %}{{ s4a_gate_enable }}
+        {% elif active_scenario == '5' %}{{ s5_gate_enable }}
+        {% elif active_scenario == '6' %}{{ s6_gate_enable }}
+        {% else %}false{% endif %}
+      current_gate_threshold: >
+        {% if active_scenario == '1' %}{{ s1_gate_threshold }}
+        {% elif active_scenario == '2' %}{{ s2_gate_threshold }}
+        {% elif active_scenario == '3' %}{{ s3_gate_threshold }}
+        {% elif active_scenario == '4' %}{{ s4_gate_threshold }}
+        {% elif active_scenario == '4a' %}{{ s4a_gate_threshold }}
+        {% elif active_scenario == '5' %}{{ s5_gate_threshold }}
+        {% elif active_scenario == '6' %}{{ s6_gate_threshold }}
+        {% else %}active{% endif %}
+      current_mobile_push: >
+        {% if active_scenario == '1' %}{{ s1_mobile_push }}
+        {% elif active_scenario == '2' %}{{ s2_mobile_push }}
+        {% elif active_scenario == '3' %}{{ s3_mobile_push }}
+        {% elif active_scenario == '4' %}{{ s4_mobile_push }}
+        {% elif active_scenario == '4a' %}{{ s4a_mobile_push }}
+        {% elif active_scenario == '5' %}{{ s5_mobile_push }}
+        {% elif active_scenario == '6' %}{{ s6_mobile_push }}
+        {% else %}true{% endif %}
+      current_video_min_detection: >
+        {% if active_scenario == '1' %}{{ s1_video_min_detection }}
+        {% elif active_scenario == '2' %}{{ s2_video_min_detection }}
+        {% elif active_scenario == '3' %}{{ s3_video_min_detection }}
+        {% elif active_scenario == '4' %}{{ s4_video_min_detection }}
+        {% elif active_scenario == '4a' %}{{ s4a_video_min_detection }}
+        {% elif active_scenario == '5' %}{{ s5_video_min_detection }}
+        {% elif active_scenario == '6' %}{{ s6_video_min_detection }}
+        {% else %}never{% endif %}
+      current_tv_notify: >
+        {% if active_scenario == '1' %}{{ s1_tv_notify }}
+        {% elif active_scenario == '2' %}{{ s2_tv_notify }}
+        {% elif active_scenario == '3' %}{{ s3_tv_notify }}
+        {% elif active_scenario == '4' %}{{ s4_tv_notify }}
+        {% elif active_scenario == '4a' %}{{ s4a_tv_notify }}
+        {% elif active_scenario == '5' %}{{ s5_tv_notify }}
+        {% elif active_scenario == '6' %}{{ s6_tv_notify }}
+        {% else %}false{% endif %}
+      current_tts_enable: >
+        {% if active_scenario == '1' %}{{ s1_tts_enable }}
+        {% elif active_scenario == '2' %}{{ s2_tts_enable }}
+        {% elif active_scenario == '3' %}{{ s3_tts_enable }}
+        {% elif active_scenario == '4' %}{{ s4_tts_enable }}
+        {% elif active_scenario == '4a' %}{{ s4a_tts_enable }}
+        {% elif active_scenario == '5' %}{{ s5_tts_enable }}
+        {% elif active_scenario == '6' %}{{ s6_tts_enable }}
+        {% else %}false{% endif %}
+      current_alarm_mode: >
+        {% if active_scenario == '1' %}{{ s1_alarm_mode }}
+        {% elif active_scenario == '2' %}{{ s2_alarm_mode }}
+        {% elif active_scenario == '3' %}{{ s3_alarm_mode }}
+        {% elif active_scenario == '4' %}{{ s4_alarm_mode }}
+        {% elif active_scenario == '4a' %}{{ s4a_alarm_mode }}
+        {% elif active_scenario == '5' %}{{ s5_alarm_mode }}
+        {% elif active_scenario == '6' %}{{ s6_alarm_mode }}
+        {% else %}false{% endif %}
+      current_alarm_conditions: >
+        {% if active_scenario == '4' %}{{ s4_alarm_conditions | default([]) }}
+        {% elif active_scenario == '4a' %}{{ s4a_alarm_conditions | default([]) }}
+        {% else %}[]{% endif %}
+  
+  # Check notification cooldown
+  - if:
+      - condition: template
+        value_template: >
+          {{ not this.attributes.last_triggered
+             or (now() - this.attributes.last_triggered).seconds > delay_notification }}
+    then:
+      # 1) Create snapshot and/or video
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ current_snapshot and current_video and camera_entity_snapshot != '' }}"
+            sequence:
+              - parallel:
+                  - action: camera.snapshot
+                    target:
+                      entity_id: "{{ camera_entity_snapshot }}"
+                    data:
+                      filename: "{{ file_path }}"
+                  - action: camera.record
+                    target:
+                      entity_id: "{{ camera_entity_snapshot }}"
+                    data:
+                      filename: "{{ video_file_path }}"
+                      duration: "{{ video_duration }}"
+                      lookback: "{{ video_lookback }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ current_snapshot and not current_video and camera_entity_snapshot != '' }}"
+            sequence:
+              - action: camera.snapshot
+                target:
+                  entity_id: "{{ camera_entity_snapshot }}"
+                data:
+                  filename: "{{ file_path }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ not current_snapshot and current_video and camera_entity_snapshot != '' }}"
+            sequence:
+              - action: camera.record
+                target:
+                  entity_id: "{{ camera_entity_snapshot }}"
+                data:
+                  filename: "{{ video_file_path }}"
+                  duration: "{{ video_duration }}"
+                  lookback: "{{ video_lookback }}"
+      
+      # 2) Importance analysis (with Structured Output)
+      - variables:
+          importance_status: "{% if current_importance %}pending{% else %}disabled{% endif %}"
+          importance_attempts_used: 0
+          _importance_result_temp: ""
+          _importance_title_temp: ""
+      
+      - if:
+          - condition: template
+            value_template: "{{ current_importance }}"
+        then:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: >
+                    {% set valid = ['no-person', 'probably-person', 'definitely-person'] %}
+                    {% set r = _importance_result_temp | lower %}
+                    {% set ok = valid | select('in', r) | list | length > 0 %}
+                    {{ not ok and repeat.index <= importance_max_retries }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input importance_retry_delay
+                - action: llmvision.image_analyzer
+                  data:
+                    image_file: "{{ file_path }}"
+                    provider: !input provider
+                    model: !input model
+                    message: >
+                      {% if repeat.index > 1 %}IMPORTANT: You MUST respond with a valid JSON classification. Choose exactly one: no-person, probably-person, or definitely-person.
+                      
+                      {% endif %}{{ importance_prompt }}
+                    include_filename: true
+                    target_width: "{{ importance_target_width }}"
+                    max_tokens: "{{ importance_max_tokens }}"
+                    generate_title: true
+                    store_in_timeline: false
+                    response_format: json
+                    structure: "{{ detection_structure }}"
+                  response_variable: _importance_response
+                - variables:
+                    _importance_result_temp: >
+                      {% set raw = _importance_response.response_text | default('') %}
+                      {% set parsed = raw | from_json | default(none) %}
+                      {% if parsed and parsed.classification is defined %}
+                        {{ parsed.classification }}
+                      {% else %}
+                        {{ raw }}
+                      {% endif %}
+                    _importance_title_temp: "{{ _importance_response.title | default('') }}"
+                    importance_attempts_used: "{{ repeat.index }}"
+          - variables:
+              importance_status: >
+                {% if _importance_result_temp == '' %}no_response
+                {% elif 'definitely-person' in (_importance_result_temp | lower) %}success
+                {% elif 'probably-person' in (_importance_result_temp | lower) %}success
+                {% elif 'no-person' in (_importance_result_temp | lower) %}success
+                {% else %}invalid_response{% endif %}
+      
+      # 2b) Detection level
+      - variables:
+          detection_level: >
+            {% if importance_status == 'disabled' %}none
+            {% elif importance_status in ['no_response', 'invalid_response'] %}probably-person
+            {% else %}
+              {% set t = _importance_result_temp | lower %}
+              {% if 'definitely-person' in t %}definitely-person
+              {% elif 'probably-person' in t %}probably-person
+              {% elif 'no-person' in t %}no-person
+              {% else %}probably-person{% endif %}
+            {% endif %}
+          initial_interruption_level: >
+            {% if detection_level == 'definitely-person' %}{{ current_level_definitely_person }}
+            {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
+            {% else %}{{ current_level_no_person }}{% endif %}
+      
+      # Initialize variables for debugging to avoid crashes in Step 4
+      - variables:
+          verified_detection: "{{ detection_level }}"
+          final_interruption_level: "{{ initial_interruption_level }}"
+          video_attempts_used: 0
+
+      # 3) Gate check
+      - if:
+          - condition: template
+            value_template: "{{ current_gate_enable }}"
+          - condition: template
+            value_template: "{{ (level_rank[initial_interruption_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}"
+        then:
+          - stop: "Gate: Level {{ initial_interruption_level }} < Threshold {{ current_gate_threshold }}"
+      
+      # 4) Mobile push notification
+      - if:
+          - condition: template
+            value_template: "{{ current_mobile_push }}"
+        then:
+          - repeat:
+              for_each: "{{ notify_services_all }}"
+              sequence:
+                - action: "notify.{{ repeat.item }}"
+                  continue_on_error: true
+                  data:
+                    title: "{{ camera }} - {{ label }} um {{ now().strftime('%H:%M') }}"
+                    message: >
+                      {% if importance_status == 'disabled' %}Bewegung erkannt
+                      {% elif importance_status == 'no_response' %}Bewegung erkannt - Analyse nicht möglich
+                      {% elif importance_status == 'invalid_response' %}Bewegung erkannt - Analyse fehlerhaft
+                      {% elif detection_level == 'definitely-person' %}Person erkannt
+                      {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
+                      {% else %}Bewegung erkannt - keine Person{% endif %}{% if debug_info_enabled %}
+
+                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
+                    data:
+                      url: "{{ tap_navigate }}"
+                      clickAction: "{{ tap_navigate }}"
+                      tag: "{{ notification_tag }}"
+                      group: "cams"
+                      attachment:
+                        url: "{{ snapshot_access_file_path }}"
+                        content_type: JPEG
+                      actions: >
+                        {% set actions = [] %}
+                        {% if action1_enabled %}
+                          {% set a = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
+                          {% if action1_uri %}{% set a = a | combine({'uri': action1_uri}) %}{% endif %}
+                          {% if action1_icon %}{% set a = a | combine({'icon': action1_icon}) %}{% endif %}
+                          {% set actions = actions + [a] %}
+                        {% endif %}
+                        {% if action2_enabled %}
+                          {% set a = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
+                          {% if action2_uri %}{% set a = a | combine({'uri': action2_uri}) %}{% endif %}
+                          {% if action2_icon %}{% set a = a | combine({'icon': action2_icon}) %}{% endif %}
+                          {% set actions = actions + [a] %}
+                        {% endif %}
+                        {% if action3_enabled %}
+                          {% set a = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
+                          {% if action3_uri %}{% set a = a | combine({'uri': action3_uri}) %}{% endif %}
+                          {% if action3_icon %}{% set a = a | combine({'icon': action3_icon}) %}{% endif %}
+                          {% set actions = actions + [a] %}
+                        {% endif %}
+                        {{ actions }}
+                      push:
+                        interruption-level: "{{ initial_interruption_level }}"
+                        sound:
+                          name: "{{ notification_sound_critical if initial_interruption_level == 'critical' else notification_sound }}"
+                          volume: "{{ notification_volume_critical if initial_interruption_level == 'critical' else notification_volume }}"
+                          critical: "{{ initial_interruption_level == 'critical' }}"
+      
+      # 5) Video analysis with Structured Output and store_in_timeline
+      - variables:
+          video_should_run: >
+            {% if not current_video %}false
+            {% elif current_video_min_detection == 'always' %}true
+            {% elif current_video_min_detection == 'never' %}false
+            {% elif current_video_min_detection == 'no-person' %}true
+            {% elif current_video_min_detection == 'probably-person' and detection_rank[detection_level] >= 1 %}true
+            {% elif current_video_min_detection == 'definitely-person' and detection_rank[detection_level] >= 2 %}true
+            {% else %}false{% endif %}
+          video_status: "{% if video_should_run %}pending{% else %}disabled{% endif %}"
+          video_result: ""
+          _video_title_temp: ""
+      
+      - if:
+          - condition: template
+            value_template: "{{ video_should_run and camera_entity_snapshot != '' }}"
+        then:
+          - variables:
+              _video_result_temp: "probably-person"
+          
+          # Explicit Type Casting for Integers
+          - delay: 
+              seconds: "{{ video_duration | int + video_lookback | int + 2 }}"
+          
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ _video_result_temp == 'probably-person' and repeat.index <= video_max_retries }}"
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input video_retry_delay
+                - action: llmvision.video_analyzer
+                  data:
+                    video_file: "{{ video_file_path }}"
+                    provider: !input provider
+                    model: !input model
+                    message: >
+                      {% if repeat.index > 1 %}IMPORTANT: Avoid "probably-person". Make your best assessment between "definitely-person" and "no-person".
+                      
+                      {% endif %}{{ video_prompt }}
+                    include_filename: true
+                    max_frames: "{{ video_max_frames }}"
+                    target_width: "{{ video_target_width }}"
+                    max_tokens: "{{ video_max_tokens }}"
+                    generate_title: "{{ store_in_timeline }}"
+                    store_in_timeline: "{{ store_in_timeline and (repeat.index == video_max_retries or _video_result_temp != 'probably-person') }}"
+                    expose_images: "{{ store_in_timeline }}"
+                    response_format: json
+                    structure: "{{ detection_structure }}"
+                  response_variable: _response
+                - variables:
+                    _video_result_temp: >
+                      {% set raw = _response.response_text | default('') %}
+                      {% set parsed = raw | from_json | default(none) %}
+                      {% if parsed and parsed.classification is defined %}
+                        {{ parsed.classification }}
+                      {% else %}
+                        {{ raw }}
+                      {% endif %}
+                    _video_title_temp: "{{ _response.title | default('') }}"
+                    video_attempts_used: "{{ repeat.index }}"
+          - variables:
+              video_status: >
+                {% if _video_result_temp == '' %}no_response
+                {% elif _video_result_temp == 'probably-person' %}still_unclear
+                {% else %}success{% endif %}
+              video_result: "{{ _video_result_temp }}"
+              verified_detection: >
+                {% if _video_result_temp == 'definitely-person' %}definitely-person
+                {% elif _video_result_temp == 'no-person' %}no-person
+                {% else %}probably-person{% endif %}
+              final_interruption_level: >
+                {% if verified_detection == 'definitely-person' %}{{ current_level_definitely_person }}
+                {% elif verified_detection == 'probably-person' %}{{ current_level_probably_person }}
+                {% else %}{{ current_level_no_person }}{% endif %}
+      
+      # 5b) store_in_timeline for importance-only runs (no video analysis)
+      #     When video didn't run but importance did, store the snapshot in timeline
+      - if:
+          - condition: template
+            value_template: "{{ store_in_timeline and not video_should_run and current_importance }}"
+        then:
+          - action: llmvision.create_event
+            data:
+              title: >
+                {% if _importance_title_temp %}
+                  {{ _importance_title_temp }}
+                {% else %}
+                  Kamera Event
+                {% endif %}
+              description: >
+                {% if detection_level %}
+                  {{ video_result_map[detection_level] | default(detection_level) }}
+                {% else %}
+                  Keine Analyse Ergebnisse
+                {% endif %}
+              camera_entity: "{{ camera_entity_snapshot }}"
+            continue_on_error: true
+
+      # 6) TV notifications - LG WebOS TV
+      - variables:
+          lg_tv_should_send: >
+            {% if not current_tv_notify or not lg_tv_enable or lg_tv_entities|length == 0 %}false
+            {% elif lg_tv_min_detection == 'always' %}true
+            {% elif lg_tv_min_detection == 'never' %}false
+            {% elif lg_tv_min_detection == 'no-person' %}true
+            {% elif lg_tv_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
+            {% elif lg_tv_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
+            {% else %}false{% endif %}
+
+      - if:
+          - condition: template
+            value_template: "{{ lg_tv_should_send }}"
+          - condition: and
+            conditions: !input lg_tv_conditions
+        then:
+          - repeat:
+              count: >
+                {{ lg_tv_repeat_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input lg_tv_repeat_delay
+                - repeat:
+                    for_each: "{{ lg_tv_entities }}"
+                    sequence:
+                      - action: notify.lg_webos_smart_tv
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ repeat.item }}"
+                        data:
+                          title: "{{ lg_tv_message_title }}"
+                          message: >
+                            {% if video_status == 'success' and video_result %}
+                              {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                            {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                            {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+      
+      # 6b) TV notifications - Other Notify Services
+      - variables:
+          other_notify_should_send: >
+            {% if not current_tv_notify or other_notify_entities|length == 0 %}false
+            {% elif other_notify_min_detection == 'always' %}true
+            {% elif other_notify_min_detection == 'never' %}false
+            {% elif other_notify_min_detection == 'no-person' %}true
+            {% elif other_notify_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
+            {% elif other_notify_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
+            {% else %}false{% endif %}
+
+      - if:
+          - condition: template
+            value_template: "{{ other_notify_should_send }}"
+          - condition: and
+            conditions: !input other_notify_conditions
+        then:
+          - repeat:
+              count: >
+                {{ other_notify_repeat_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input other_notify_repeat_delay
+                - repeat:
+                    for_each: "{{ other_notify_entities }}"
+                    sequence:
+                      - action: "{{ repeat.item }}"
+                        continue_on_error: true
+                        data:
+                          title: "{{ other_notify_title }}"
+                          message: >
+                            {% if video_status == 'success' and video_result %}
+                              {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                            {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                            {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+      
+      # 7) TTS announcement
+      - if:
+          - condition: template
+            value_template: "{{ current_tts_enable }}"
+          - condition: template
+            value_template: "{{ final_interruption_level == 'critical' }}"
+          - condition: template
+            value_template: "{{ tts_media_players|length > 0 }}"
+          - condition: template
+            value_template: "{{ tts_target_entity != none and tts_target_entity|length > 0 }}"
+        then:
+          - repeat:
+              count: "{{ tts_repeat_count }}"
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input tts_repeat_delay
+                - repeat:
+                    for_each: "{{ tts_media_players }}"
+                    sequence:
+                      - action: media_player.volume_set
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ repeat.item }}"
+                        data:
+                          volume_level: "{{ tts_volume }}"
+                      - action: tts.speak
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ tts_target_entity }}"
+                        data:
+                          cache: false
+                          media_player_entity_id: "{{ repeat.item }}"
+                          message: >
+                            {% if video_status == 'success' and video_result %}
+                              Achtung! {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                            {% elif verified_detection == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
+                            {% elif verified_detection == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
+                            {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
+      
+      # 8) Update push
+      - if:
+          - condition: template
+            value_template: "{{ video_status != 'disabled' }}"
+        then:
+          # Loop Logic: Repeat count > 1 ONLY if level is time-sensitive or higher AND alarm mode is ON
+          - repeat:
+              count: >
+                {{ alarm_repetition_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ repeat.index > 1 }}"
+                  then:
+                    - delay: !input alarm_repetition_delay
+                - repeat:
+                    for_each: "{{ notify_services_all }}"
+                    sequence:
+                      - action: "notify.{{ repeat.item }}"
+                        continue_on_error: true
+                        data:
+                          title: "{{ camera }} - Update um {{ now().strftime('%H:%M') }}"
+                          message: >
+                            {% if video_status == 'no_response' %}Video-Analyse nicht möglich
+                            {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
+                            {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
+                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}{% if debug_info_enabled %}
+
+                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
+                          data:
+                            url: "{{ tap_navigate }}"
+                            clickAction: "{{ tap_navigate }}"
+                            tag: "{{ notification_tag }}"
+                            group: "cams"
+                            attachment:
+                              url: "{{ snapshot_access_file_path }}"
+                              content_type: JPEG
+                            actions: >
+                              {% set actions = [] %}
+                              {% if action1_enabled %}
+                                {% set a = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
+                                {% if action1_uri %}{% set a = a | combine({'uri': action1_uri}) %}{% endif %}
+                                {% if action1_icon %}{% set a = a | combine({'icon': action1_icon}) %}{% endif %}
+                                {% set actions = actions + [a] %}
+                              {% endif %}
+                              {% if action2_enabled %}
+                                {% set a = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
+                                {% if action2_uri %}{% set a = a | combine({'uri': action2_uri}) %}{% endif %}
+                                {% if action2_icon %}{% set a = a | combine({'icon': action2_icon}) %}{% endif %}
+                                {% set actions = actions + [a] %}
+                              {% endif %}
+                              {% if action3_enabled %}
+                                {% set a = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
+                                {% if action3_uri %}{% set a = a | combine({'uri': action3_uri}) %}{% endif %}
+                                {% if action3_icon %}{% set a = a | combine({'icon': action3_icon}) %}{% endif %}
+                                {% set actions = actions + [a] %}
+                              {% endif %}
+                              {{ actions }}
+                            push:
+                              interruption-level: "{{ final_interruption_level }}"
+                              sound:
+                                name: "{{ notification_sound_critical if final_interruption_level == 'critical' else notification_sound }}"
+                                volume: "{{ notification_volume_critical if final_interruption_level == 'critical' else notification_volume }}"
+                                critical: "{{ final_interruption_level == 'critical' }}"
+
+  # Standard cooldown to ensure clean exit
+  - delay: 
+      seconds: 5
