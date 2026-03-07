@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 4.0.2"
+  name: "Camera Event Notification 4.0.4"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -2017,18 +2017,23 @@ action:
                   response_variable: _importance_response
                 - variables:
                     _importance_result_temp: >
-                      {% set raw = (_importance_response.response_text | default('')) | trim %}
-                      {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
-                        {% set parsed = raw | from_json %}
-                        {% if parsed is mapping and parsed.classification is defined %}
-                          {{ parsed.classification }}
+                      {% set sr = (_importance_response | default({})).structured_response | default(none) %}
+                      {% if sr is mapping and sr.classification is defined %}
+                        {{ sr.classification }}
+                      {% else %}
+                        {% set raw = ((_importance_response | default({})).response_text | default('')) | trim %}
+                        {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
+                          {% set parsed = raw | from_json %}
+                          {% if parsed is mapping and parsed.classification is defined %}
+                            {{ parsed.classification }}
+                          {% else %}
+                            {{ raw }}
+                          {% endif %}
                         {% else %}
                           {{ raw }}
                         {% endif %}
-                      {% else %}
-                        {{ raw }}
                       {% endif %}
-                    _importance_title_temp: "{{ _importance_response.title | default('') }}"
+                    _importance_title_temp: "{{ (_importance_response | default({})).title | default('') }}"
                     importance_attempts_used: "{{ repeat.index }}"
           - variables:
               importance_status: >
@@ -2184,16 +2189,21 @@ action:
                   response_variable: _response
                 - variables:
                     _video_result_temp: >
-                      {% set raw = ((_response | default({})).response_text | default('')) | trim %}
-                      {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
-                        {% set parsed = raw | from_json %}
-                        {% if parsed is mapping and parsed.classification is defined %}
-                          {{ parsed.classification }}
+                      {% set sr = ((_response | default({})).structured_response | default(none)) %}
+                      {% if sr is mapping and sr.classification is defined %}
+                        {{ sr.classification }}
+                      {% else %}
+                        {% set raw = ((_response | default({})).response_text | default('')) | trim %}
+                        {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
+                          {% set parsed = raw | from_json %}
+                          {% if parsed is mapping and parsed.classification is defined %}
+                            {{ parsed.classification }}
+                          {% else %}
+                            {{ raw }}
+                          {% endif %}
                         {% else %}
                           {{ raw }}
                         {% endif %}
-                      {% else %}
-                        {{ raw }}
                       {% endif %}
                     _video_title_temp: "{{ (_response | default({})).title | default('') }}"
                     video_attempts_used: "{{ repeat.index }}"
