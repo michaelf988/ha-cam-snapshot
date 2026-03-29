@@ -2278,10 +2278,8 @@ action:
                 - repeat:
                     for_each: "{{ lg_tv_entities }}"
                     sequence:
-                      - action: notify.lg_webos_smart_tv
+                      - action: "notify.{{ repeat.item | replace('media_player.', '') }}"
                         continue_on_error: true
-                        target:
-                          entity_id: "{{ repeat.item }}"
                         data:
                           title: "{{ lg_tv_message_title }}"
                           message: >
