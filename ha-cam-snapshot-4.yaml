@@ -1,12 +1,17 @@
 blueprint:
-  name: "Camera Event Notification 4.0.5"
+  name: "Camera Event Notification 4.0.6"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
-    Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung. 
+    Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
-    
+
+    VERSION 4.0.6:
+    - FIX: LG WebOS TV Benachrichtigungen nutzen jetzt direkt Notify-Service-Namen statt Media-Player-Entitäten.
+    - INPUT: lg_tv_entities → lg_tv_notify_services (select mit custom_value, z.B. notify.lg_webos_smart_tv_wohnzimmer).
+    - ACTION: Kein fragiler String-Replace mehr (media_player.xxx → notify.xxx), stattdessen direkter Aufruf.
+
     VERSION 4.0.0:
     - BREAKING: Erfordert LLMVision >= 1.6.0.
     - NEU: Structured Output (JSON) für zuverlässigere Klassifizierung bei Wichtigkeits- und Video-Analyse.
@@ -511,15 +516,15 @@ blueprint:
           selector:
             boolean:
 
-        lg_tv_entities:
-          name: "LG WebOS TV Geräte"
+        lg_tv_notify_services:
+          name: "LG WebOS TV Notify Services"
+          description: "Die Notify-Service-Namen der LG TVs, z.B. notify.lg_webos_smart_tv_wohnzimmer"
           default: []
           selector:
-            entity:
+            select:
               multiple: true
-              filter:
-                domain: media_player
-                integration: webostv
+              custom_value: true
+              options: []
 
         lg_tv_conditions:
           name: "Bedingungen für LG TV-Benachrichtigungen"
@@ -1558,7 +1563,7 @@ variables:
   tts_repeat_delay: !input tts_repeat_delay
   
   lg_tv_enable: !input lg_tv_enable
-  lg_tv_entities: !input lg_tv_entities
+  lg_tv_entities: !input lg_tv_notify_services
   lg_tv_conditions: !input lg_tv_conditions
   lg_tv_message_title: !input lg_tv_message_title
   lg_tv_min_detection: !input lg_tv_min_detection
@@ -2278,7 +2283,7 @@ action:
                 - repeat:
                     for_each: "{{ lg_tv_entities }}"
                     sequence:
-                      - action: "notify.{{ repeat.item | replace('media_player.', '') }}"
+                      - action: "{{ repeat.item }}"
                         continue_on_error: true
                         data:
                           title: "{{ lg_tv_message_title }}"
