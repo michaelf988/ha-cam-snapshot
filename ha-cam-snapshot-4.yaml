@@ -1,11 +1,17 @@
 blueprint:
-  name: "Camera Event Notification 4.1.0"
+  name: "Camera Event Notification 4.1.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 4.1.1:
+    - BUGFIX: store_in_timeline | bool in Step 5b (llmvision.create_event wurde immer ausgeführt,
+      auch wenn store_in_timeline: false gesetzt war).
+    - BUGFIX: Update-Push zeigt jetzt "Bewegung erkannt" statt leerem Text wenn video_result leer ist.
+    - CLEANUP: Tote Variable response (response_text) aus dem Variables-Block entfernt.
 
     VERSION 4.1.0:
     - BUGFIX: Gate-Check nutzt jetzt current_gate_enable | bool (Gate konnte fälschlicherweise
@@ -1513,9 +1519,6 @@ blueprint:
 
 # ================= Variables =================
 variables:
-  response:
-    response_text: ""
-  
   # --- Debug Variable ---
   debug_info_enabled: !input debug_info_enabled
 
@@ -2249,7 +2252,7 @@ action:
       # 5b) store_in_timeline: Create timeline event after analysis is complete
       - if:
           - condition: template
-            value_template: "{{ store_in_timeline }}"
+            value_template: "{{ store_in_timeline | bool }}"
         then:
           - action: llmvision.create_event
             continue_on_error: true
@@ -2420,8 +2423,9 @@ action:
                           message: >
                             {% if video_status == 'no_response' %}Video-Analyse nicht möglich
                             {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
-                            {% elif verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
-                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}{% if debug_info_enabled %}
+                            {% elif video_result %}{% if verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
+                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
+                            {% else %}{{ video_result_map[verified_detection] | default('Bewegung erkannt') }}{% endif %}{% if debug_info_enabled %}
 
                             (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
                           data:
