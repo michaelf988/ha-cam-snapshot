@@ -1,11 +1,19 @@
 blueprint:
-  name: "Camera Event Notification 4.0.9"
+  name: "Camera Event Notification 4.1.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 4.1.0:
+    - BUGFIX: Gate-Check nutzt jetzt current_gate_enable | bool (Gate konnte fälschlicherweise
+      Automation stoppen, auch wenn gate_enable: false gesetzt war).
+    - BUGFIX: current_tv_notify | bool in lg_tv_should_send und other_notify_should_send
+      (TV/Other-Notify sendete trotz s_tv_notify: false im aktiven Szenario).
+    - BUGFIX: store_in_timeline direkt als boolean übergeben statt als gerenderter String.
+    - FIX: Cooldown-Check nutzt .total_seconds() statt .seconds für korrekte Semantik.
 
     VERSION 4.0.9:
     - BUGFIX: Jinja2 Boolean-Truthiness-Bug behoben. Python-Booleans (False/True) werden als nicht-leere Strings
@@ -1947,7 +1955,7 @@ action:
       - condition: template
         value_template: >
           {{ not this.attributes.last_triggered
-             or (now() - this.attributes.last_triggered).seconds > delay_notification }}
+             or (now() - this.attributes.last_triggered).total_seconds() > delay_notification }}
     then:
       # 1) Create snapshot and/or video
       - choose:
@@ -2085,7 +2093,7 @@ action:
       # 3) Gate check
       - if:
           - condition: template
-            value_template: "{{ current_gate_enable }}"
+            value_template: "{{ current_gate_enable | bool }}"
           - condition: template
             value_template: "{{ (level_rank[initial_interruption_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}"
         then:
@@ -2197,9 +2205,9 @@ action:
                     max_frames: "{{ video_max_frames }}"
                     target_width: "{{ video_target_width }}"
                     max_tokens: "{{ video_max_tokens }}"
-                    generate_title: "{{ store_in_timeline }}"
+                    generate_title: "{{ store_in_timeline | bool }}"
                     store_in_timeline: false
-                    expose_images: "{{ store_in_timeline }}"
+                    expose_images: "{{ store_in_timeline | bool }}"
                     response_format: json
                     structure: "{{ detection_structure }}"
                   response_variable: _response
@@ -2268,7 +2276,7 @@ action:
       # 6) TV notifications - LG WebOS TV
       - variables:
           lg_tv_should_send: >
-            {% if not current_tv_notify or not lg_tv_enable or lg_tv_entities|length == 0 %}false
+            {% if not (current_tv_notify | bool) or not (lg_tv_enable | bool) or lg_tv_entities|length == 0 %}false
             {% elif lg_tv_min_detection == 'always' %}true
             {% elif lg_tv_min_detection == 'never' %}false
             {% elif lg_tv_min_detection == 'no-person' %}true
@@ -2308,7 +2316,7 @@ action:
       # 6b) TV notifications - Other Notify Services
       - variables:
           other_notify_should_send: >
-            {% if not current_tv_notify or other_notify_entities|length == 0 %}false
+            {% if not (current_tv_notify | bool) or other_notify_entities|length == 0 %}false
             {% elif other_notify_min_detection == 'always' %}true
             {% elif other_notify_min_detection == 'never' %}false
             {% elif other_notify_min_detection == 'no-person' %}true
