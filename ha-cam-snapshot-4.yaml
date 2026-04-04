@@ -1,5 +1,5 @@
 blueprint:
-  name: "Camera Event Notification 4.0.7"
+  name: "Camera Event Notification 4.0.8"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
@@ -7,9 +7,9 @@ blueprint:
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
 
-    VERSION 4.0.7:
-    - UX: lg_tv_notify_services nutzt jetzt Entity-Selektor (domain: notify) statt leerem Select-Dropdown.
-    - Alle verfügbaren Notify-Services werden automatisch im Dropdown aufgelistet.
+    VERSION 4.0.8:
+    - FIX: lg_tv_notify_services zurück auf select/custom_value (entity-Selektor funktioniert nicht für Legacy-Notify-Services ohne Entity-Eintrag).
+    - Notify-Service-Name manuell eingeben, z.B. notify.lg_webos_smart_tv_wohnzimmer.
 
     VERSION 4.0.6:
     - FIX: LG WebOS TV Benachrichtigungen nutzen jetzt direkt Notify-Service-Namen statt Media-Player-Entitäten.
@@ -522,13 +522,13 @@ blueprint:
 
         lg_tv_notify_services:
           name: "LG WebOS TV Notify Services"
-          description: "Die Notify-Services der LG TVs auswählen, z.B. notify.lg_webos_smart_tv_wohnzimmer"
+          description: "Notify-Service-Namen der LG TVs eingeben, z.B. notify.lg_webos_smart_tv_wohnzimmer"
           default: []
           selector:
-            entity:
+            select:
               multiple: true
-              filter:
-                domain: notify
+              custom_value: true
+              options: []
 
         lg_tv_conditions:
           name: "Bedingungen für LG TV-Benachrichtigungen"
