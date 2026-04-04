@@ -1,11 +1,18 @@
 blueprint:
-  name: "Camera Event Notification 4.0.8"
+  name: "Camera Event Notification 4.0.9"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 4.0.9:
+    - BUGFIX: Jinja2 Boolean-Truthiness-Bug behoben. Python-Booleans (False/True) werden als nicht-leere Strings
+      gerendert ("False"/"True"), die in Jinja2 immer truthy sind. Dadurch liefen Video-Aufnahme, Video-Analyse,
+      Wichtigkeitsanalyse und andere Blöcke auch wenn sie deaktiviert waren. Fix: | bool Filter an allen
+      boolean-Checks (current_video, current_snapshot, current_importance, current_mobile_push,
+      current_tts_enable, video_should_run, lg_tv_should_send, other_notify_should_send, current_alarm_mode).
 
     VERSION 4.0.8:
     - FIX: lg_tv_notify_services zurück auf select/custom_value (entity-Selektor funktioniert nicht für Legacy-Notify-Services ohne Entity-Eintrag).
@@ -1946,7 +1953,7 @@ action:
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ current_snapshot and current_video and camera_entity_snapshot != '' }}"
+                value_template: "{{ (current_snapshot | bool) and (current_video | bool) and camera_entity_snapshot != '' }}"
             sequence:
               - parallel:
                   - action: camera.snapshot
@@ -1963,7 +1970,7 @@ action:
                       lookback: "{{ video_lookback }}"
           - conditions:
               - condition: template
-                value_template: "{{ current_snapshot and not current_video and camera_entity_snapshot != '' }}"
+                value_template: "{{ (current_snapshot | bool) and not (current_video | bool) and camera_entity_snapshot != '' }}"
             sequence:
               - action: camera.snapshot
                 target:
@@ -1972,7 +1979,7 @@ action:
                   filename: "{{ file_path }}"
           - conditions:
               - condition: template
-                value_template: "{{ not current_snapshot and current_video and camera_entity_snapshot != '' }}"
+                value_template: "{{ not (current_snapshot | bool) and (current_video | bool) and camera_entity_snapshot != '' }}"
             sequence:
               - action: camera.record
                 target:
@@ -1984,14 +1991,14 @@ action:
       
       # 2) Importance analysis (with Structured Output)
       - variables:
-          importance_status: "{% if current_importance %}pending{% else %}disabled{% endif %}"
+          importance_status: "{% if current_importance | bool %}pending{% else %}disabled{% endif %}"
           importance_attempts_used: 0
           _importance_result_temp: ""
           _importance_title_temp: ""
       
       - if:
           - condition: template
-            value_template: "{{ current_importance }}"
+            value_template: "{{ current_importance | bool }}"
         then:
           - repeat:
               while:
@@ -2087,7 +2094,7 @@ action:
       # 4) Mobile push notification
       - if:
           - condition: template
-            value_template: "{{ current_mobile_push }}"
+            value_template: "{{ current_mobile_push | bool }}"
         then:
           - repeat:
               for_each: "{{ notify_services_all }}"
@@ -2144,20 +2151,20 @@ action:
       # 5) Video analysis with Structured Output and store_in_timeline
       - variables:
           video_should_run: >
-            {% if not current_video %}false
+            {% if not (current_video | bool) %}false
             {% elif current_video_min_detection == 'always' %}true
             {% elif current_video_min_detection == 'never' %}false
             {% elif current_video_min_detection == 'no-person' %}true
             {% elif current_video_min_detection == 'probably-person' and detection_rank[detection_level] >= 1 %}true
             {% elif current_video_min_detection == 'definitely-person' and detection_rank[detection_level] >= 2 %}true
             {% else %}false{% endif %}
-          video_status: "{% if video_should_run %}pending{% else %}disabled{% endif %}"
+          video_status: "{% if video_should_run | bool %}pending{% else %}disabled{% endif %}"
           video_result: ""
           _video_title_temp: ""
       
       - if:
           - condition: template
-            value_template: "{{ video_should_run and camera_entity_snapshot != '' }}"
+            value_template: "{{ (video_should_run | bool) and camera_entity_snapshot != '' }}"
         then:
           - variables:
               _video_result_temp: "probably-person"
@@ -2271,13 +2278,13 @@ action:
 
       - if:
           - condition: template
-            value_template: "{{ lg_tv_should_send }}"
+            value_template: "{{ lg_tv_should_send | bool }}"
           - condition: and
             conditions: !input lg_tv_conditions
         then:
           - repeat:
               count: >
-                {{ lg_tv_repeat_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+                {{ lg_tv_repeat_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
               sequence:
                 - if:
                     - condition: template
@@ -2311,13 +2318,13 @@ action:
 
       - if:
           - condition: template
-            value_template: "{{ other_notify_should_send }}"
+            value_template: "{{ other_notify_should_send | bool }}"
           - condition: and
             conditions: !input other_notify_conditions
         then:
           - repeat:
               count: >
-                {{ other_notify_repeat_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+                {{ other_notify_repeat_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
               sequence:
                 - if:
                     - condition: template
@@ -2341,7 +2348,7 @@ action:
       # 7) TTS announcement
       - if:
           - condition: template
-            value_template: "{{ current_tts_enable }}"
+            value_template: "{{ current_tts_enable | bool }}"
           - condition: template
             value_template: "{{ final_interruption_level == 'critical' }}"
           - condition: template
@@ -2388,7 +2395,7 @@ action:
           # Loop Logic: Repeat count > 1 ONLY if level is time-sensitive or higher AND alarm mode is ON
           - repeat:
               count: >
-                {{ alarm_repetition_count if (current_alarm_mode and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+                {{ alarm_repetition_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
               sequence:
                 - if:
                     - condition: template
