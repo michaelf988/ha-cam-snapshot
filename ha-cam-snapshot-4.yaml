@@ -1,11 +1,17 @@
 blueprint:
-  name: "Camera Event Notification 4.2.0"
+  name: "Camera Event Notification 4.2.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 4.2.1:
+    - UX: Debug-Tag zeigt jetzt die Analyse-Quelle des Ergebnisses.
+      Initial-Push: (S3 | img:probably-person | passive)
+      Update-Push:  (S3 | img:probably-person → vid:definitely-person | time-sensitive | 1x)
+      'vid' = Ergebnis stammt aus Video-Analyse, 'img' = aus Bild-Analyse, 'skip' = Analyse deaktiviert.
 
     VERSION 4.2.0:
     - BREAKING: Erfordert LLMVision >= 1.7.0.
@@ -2131,7 +2137,7 @@ action:
                       {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
                       {% else %}Bewegung erkannt - keine Person{% endif %}{% if debug_info_enabled %}
 
-                      (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
+                      (S{{ active_scenario }} | {% if importance_status == 'disabled' %}skip{% else %}img{% endif %}:{{ detection_level }} | {{ initial_interruption_level }}){% endif %}
                     data:
                       url: "{{ tap_navigate }}"
                       clickAction: "{{ tap_navigate }}"
@@ -2440,7 +2446,7 @@ action:
                             {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
                             {% else %}{{ video_result_map[verified_detection] | default('Bewegung erkannt') }}{% endif %}{% if debug_info_enabled %}
 
-                            (S{{ active_scenario }} | {{ detection_level }}→{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
+                            (S{{ active_scenario }} | img:{{ detection_level }} → {{ 'vid' if video_status == 'success' else 'img' }}:{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
                           data:
                             url: "{{ tap_navigate }}"
                             clickAction: "{{ tap_navigate }}"
