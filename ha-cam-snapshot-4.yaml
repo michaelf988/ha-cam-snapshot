@@ -1,11 +1,20 @@
 blueprint:
-  name: "Camera Event Notification 4.1.1"
+  name: "Camera Event Notification 4.2.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 4.2.0:
+    - BREAKING: Erfordert LLMVision >= 1.7.0.
+    - NEU: label-Parameter in llmvision.create_event - Timeline-Events werden als 'Person' oder
+      'Camera' klassifiziert (basierend auf verified_detection), kompatibel mit get_events-Filter.
+    - BUGFIX: Doppeltes continue_on_error im create_event-Aufruf entfernt (ungültiges YAML).
+    - FIX: {{ now().strftime('%H:%M') }} aus den Prompt-Defaults entfernt (wurde als Literal-String
+      an das LLM gesendet statt als ausgewertete Uhrzeit). Zeitangabe wird jetzt direkt im
+      message-Template vor dem Prompt eingefügt.
 
     VERSION 4.1.1:
     - BUGFIX: store_in_timeline | bool in Step 5b (llmvision.create_event wurde immer ausgeführt,
@@ -225,8 +234,7 @@ blueprint:
           name: "Wichtigkeits-Analyse Prompt"
           default: >
             CONTEXT: Security camera snapshot from a private property surveillance system.
-            Current time: {{ now().strftime('%H:%M') }}
-            
+
             TASK: Analyze this single frame for human presence.
             
             CLASSIFICATION:
@@ -292,8 +300,7 @@ blueprint:
           name: "Video-Analyse Prompt"
           default: >
             CONTEXT: Security camera video recording from private property.
-            Current time: {{ now().strftime('%H:%M') }}
-            
+
             TASK: Analyze the video sequence for HUMAN presence.
             
             CLASSIFICATION:
@@ -2031,8 +2038,10 @@ action:
                     provider: !input provider
                     model: !input model
                     message: >
+                      Current time: {{ now().strftime('%H:%M') }}
+
                       {% if repeat.index > 1 %}IMPORTANT: You MUST respond with a valid JSON classification. Choose exactly one: no-person, probably-person, or definitely-person.
-                      
+
                       {% endif %}{{ importance_prompt }}
                     include_filename: true
                     target_width: "{{ importance_target_width }}"
@@ -2201,8 +2210,10 @@ action:
                     provider: !input provider
                     model: !input model
                     message: >
+                      Current time: {{ now().strftime('%H:%M') }}
+
                       {% if repeat.index > 1 %}IMPORTANT: Avoid "probably-person". Make your best assessment between "definitely-person" and "no-person".
-                      
+
                       {% endif %}{{ video_prompt }}
                     include_filename: true
                     max_frames: "{{ video_max_frames }}"
@@ -2274,7 +2285,9 @@ action:
                   Keine Analyse Ergebnisse
                 {% endif %}
               camera_entity: "{{ camera_entity_snapshot }}"
-            continue_on_error: true
+              label: >
+                {% if verified_detection in ['definitely-person', 'probably-person'] %}Person
+                {% else %}Camera{% endif %}
 
       # 6) TV notifications - LG WebOS TV
       - variables:
