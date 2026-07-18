@@ -1,11 +1,16 @@
 blueprint:
-  name: "Camera Event Notification 4.2.1"
+  name: "Camera Event Notification 4.2.2"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 4.2.2:
+    - NEU: Vierter Action Button (action4_*) analog zu Button 1-3. Hinweis: iOS zeigt pro
+      Notification maximal 4 Action Buttons an - mehr als 4 gleichzeitig aktivierte Buttons
+      werden auf iOS nicht dargestellt.
 
     VERSION 4.2.1:
     - UX: Debug-Tag zeigt jetzt die Analyse-Quelle des Ergebnisses.
@@ -537,6 +542,32 @@ blueprint:
         action3_destructive:
           name: "Button 3 Rot markieren"
           default: true
+          selector:
+            boolean:
+
+        action4_enabled:
+          name: "Button 4 aktivieren"
+          default: false
+          selector:
+            boolean:
+        action4_title:
+          name: "Button 4 Text"
+          default: "Ignorieren"
+          selector:
+            text:
+        action4_uri:
+          name: "Button 4 URI (optional)"
+          default: ""
+          selector:
+            text:
+        action4_icon:
+          name: "Button 4 Icon (optional)"
+          default: ""
+          selector:
+            text:
+        action4_destructive:
+          name: "Button 4 Rot markieren"
+          default: false
           selector:
             boolean:
 
@@ -1627,7 +1658,12 @@ variables:
   action3_uri: !input action3_uri
   action3_icon: !input action3_icon
   action3_destructive: !input action3_destructive
-  
+  action4_enabled: !input action4_enabled
+  action4_title: !input action4_title
+  action4_uri: !input action4_uri
+  action4_icon: !input action4_icon
+  action4_destructive: !input action4_destructive
+
   scenario_helper: !input scenario_helper
   scenario_fallback: !input scenario_fallback
   
@@ -2166,6 +2202,12 @@ action:
                           {% if action3_icon %}{% set a = a | combine({'icon': action3_icon}) %}{% endif %}
                           {% set actions = actions + [a] %}
                         {% endif %}
+                        {% if action4_enabled %}
+                          {% set a = {'action': 'ACTION_4', 'title': action4_title, 'destructive': action4_destructive} %}
+                          {% if action4_uri %}{% set a = a | combine({'uri': action4_uri}) %}{% endif %}
+                          {% if action4_icon %}{% set a = a | combine({'icon': action4_icon}) %}{% endif %}
+                          {% set actions = actions + [a] %}
+                        {% endif %}
                         {{ actions }}
                       push:
                         interruption-level: "{{ initial_interruption_level }}"
@@ -2473,6 +2515,12 @@ action:
                                 {% set a = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
                                 {% if action3_uri %}{% set a = a | combine({'uri': action3_uri}) %}{% endif %}
                                 {% if action3_icon %}{% set a = a | combine({'icon': action3_icon}) %}{% endif %}
+                                {% set actions = actions + [a] %}
+                              {% endif %}
+                              {% if action4_enabled %}
+                                {% set a = {'action': 'ACTION_4', 'title': action4_title, 'destructive': action4_destructive} %}
+                                {% if action4_uri %}{% set a = a | combine({'uri': action4_uri}) %}{% endif %}
+                                {% if action4_icon %}{% set a = a | combine({'icon': action4_icon}) %}{% endif %}
                                 {% set actions = actions + [a] %}
                               {% endif %}
                               {{ actions }}
