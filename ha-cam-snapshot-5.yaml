@@ -1,11 +1,15 @@
 blueprint:
-  name: "Camera Event Notification 5.0.0"
+  name: "Camera Event Notification 5.0.1"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 5.0.1:
+    - FIX: instance_slug-Fallback 'automation.cen' -> 'cen' (Spook-Fehlalarm "Unbekannte Entitäten"). Kein Verhaltensunterschied.
+    - DOKU: notify_device weist auf Geräte ohne Notify-Dienst hin (z. B. Apple Watch). continue_on_error fängt ServiceNotFound nicht ab, ein solches Gerät bricht den Lauf ab.
 
     VERSION 5.0.0:
     - BREAKING: Neue Blueprint-Datei ha-cam-snapshot-5.yaml (v4 bleibt als ha-cam-snapshot-4.yaml
@@ -481,6 +485,7 @@ blueprint:
       input:
         notify_device:
           name: "Mobile Geräte"
+          description: "Nur Geräte mit eigenem Notify-Dienst (notify.mobile_app_<gerätename>). Apple-Watch-Einträge der Companion App haben keinen, der Aufruf bricht den Lauf trotz continue_on_error ab (ServiceNotFound wird nicht abgefangen). Die Watch erhält iPhone-Pushes ohnehin gespiegelt."
           selector:
             device:
               multiple: true
@@ -1963,7 +1968,7 @@ variables:
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
   # Instanz-Kennung im Dateinamen (5.0.0): Mehrere Instanzen im selben Verzeichnis überschreiben sich nicht mehr.
-  instance_slug: "{{ ((this.entity_id if (this is defined and this.entity_id is defined) else 'automation.cen') | replace('automation.', '')) }}"
+  instance_slug: "{{ (this.entity_id | replace('automation.', '')) if (this is defined and this.entity_id is defined) else 'cen' }}"
   snapshot_dir_fs_final: "{{ (snapshot_dir_fs_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
   # Web-Pfad (5.0.0): Liegt der Dateisystem-Pfad unter /media, wird die URL daraus abgeleitet
   # (/media/X -> /media/local/X, Standard-Mapping media_dirs local: /media, nur mit Anmeldung abrufbar).
