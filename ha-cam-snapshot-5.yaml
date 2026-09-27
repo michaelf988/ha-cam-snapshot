@@ -1,11 +1,79 @@
 blueprint:
-  name: "Camera Event Notification 4.2.2"
+  name: "Camera Event Notification 5.0.0"
   author: "MF"
   homeassistant:
     min_version: 2024.10.0
   description: >
     Szenario-basierte Kamera-Überwachung mit intelligenter Personen-Erkennung.
     Features: 3-stufige Wichtigkeitsanalyse, Video-Verifikation, dynamische Level-Anpassung.
+
+    VERSION 5.0.0:
+    - BREAKING: Neue Blueprint-Datei ha-cam-snapshot-5.yaml (v4 bleibt als ha-cam-snapshot-4.yaml
+      unverändert). Instanzen per use_blueprint.path auf michaelf988/ha-cam-snapshot-5.yaml umstellen.
+    - FIX: Cooldown pro Kamera statt global (delay_notification, gleiche Bedeutung in Sekunden).
+      Bisher sperrte this.last_triggered alle Kameras, und jeder Trigger (auch ein blockierter)
+      verlängerte die Sperre. Schlüssel ist jetzt die aufgelöste Kamera; Kamera-Trigger und
+      zugehöriger Bewegungssensor teilen sich den Cooldown. Ohne Helper zählt die Pause seit dem
+      letzten Ende der Bewegung auf dem auslösenden Sensor (trigger.from_state.last_changed).
+      Neuer optionaler Input cooldown_store (input_text) für einen exakten Zeitstempel pro Kamera.
+      Blockierte Läufe enden sofort per stop; Details stehen im Trace in der Variable 'cooldown'.
+    - OPT: mode parallel (max 10, max_exceeded: silent) statt queued (max 25). Das
+      abschließende 'delay: 5' ist ersatzlos entfernt (kein belegbarer Zweck, es serialisierte nur
+      alle Kameras). max 10 begrenzt gleichzeitige LLM-Aufrufe und RTSP-Sessions am NVR; mehr als
+      10 gleichzeitige Läufe bedeuten mehrere Kameras im Dauer-Trigger und werden ohne Log verworfen.
+    - HINWEIS Race-Conditions: (1) Kommen zwei Trigger derselben Kamera im selben Tick, bevor der
+      erste Lauf seinen Stempel geschrieben hat, laufen beide (Store-Modus ist kein atomares
+      Read-Modify-Write). Kamera-Trigger + Sensor im selben Tick sind abgedeckt: der früher
+      aktive gewinnt, bei Gleichstand der Bewegungssensor. (2) Schreiben zwei Kameras gleichzeitig
+      in den Store, kann ein Stempel verloren gehen; diese Kamera darf dann einmal früher melden.
+      (3) Dauert ein Lauf länger als der Cooldown (Video + Alarm-Wiederholungen), kann dieselbe
+      Kamera erneut starten; camera.record schlägt dann fehl ('already recording'), bricht aber
+      dank continue_on_error nicht mehr ab.
+    - FIX: continue_on_error bei camera.snapshot, camera.record (auch in parallel) und
+      llmvision.image_analyzer. Eine Exception im image_analyzer führt zu importance_status
+      no_response und damit zu einer Push-Nachricht mit Level probably-person. Achtung:
+      continue_on_error fängt nur HomeAssistantError ab, keine Konfigurations- oder Template-Fehler.
+    - FIX: Wichtigkeitsanalyse läuft nur mit Snapshot. Snapshot im Szenario aus -> disabled.
+      Kamera beim Trigger unavailable/unknown -> kein API-Aufruf, no_response (probably-person).
+      Das Push-Attachment wird nur gesetzt, wenn ein Snapshot erstellt wurde.
+    - FIX: Template-Fehler bei detection_level 'none' (Analyse aus) in Video-, LG-TV- und
+      Other-Notify-Schwelle behoben. 'none' hat Rang 0: Schwellen probably-/definitely-person gelten
+      bei deaktivierter Analyse als NICHT erreicht.
+    - FIX: Moderne Syntax (triggers:, trigger: state, actions:) und not_from: [unavailable, unknown]
+      an beiden Triggern. Ein NVR-Reconnect löst keinen Fehlalarm mehr aus. min_version bleibt
+      2024.10.0 (ab dieser Version gilt die neue Syntax).
+    - FIX: Dateinamen enthalten die Instanz (this.entity_id). Mehrere Instanzen im selben Verzeichnis
+      überschreiben sich nicht mehr. Nie zwei Instanzen mit Video auf denselben Kameras gleichzeitig
+      aktiv betreiben: den Recording-Konflikt kann der Blueprint nicht über Instanzen hinweg sperren.
+    - FIX: source_url zeigt auf ha-cam-snapshot-5.yaml (vorher 404 auf ha-cam-snapshot-new.yaml).
+    - SECURITY: Alles unter /config/www ist über /local/... ohne Anmeldung abrufbar. Neuer Input
+      filename_random_suffix (Default an) hängt 12 Zufallszeichen an jeden Dateinamen, damit URLs
+      nicht erratbar sind. Speicherort bleibt standardmäßig /config/www/snapshots. Optional: Liegt
+      snapshot_dir_fs unter /media, wird die URL als /media/local/... abgeleitet (nur mit Anmeldung)
+      und snapshot_dir_web ignoriert.
+    - OPT: importance_target_width und video_target_width max 1568 statt 3840 (Claude skaliert
+      serverseitig auf ca. 1568 px lange Kante). Default bleibt 1280.
+    - NEU: action1_id bis action4_id (Default ACTION_1..4). Eindeutige IDs wie CEN_PAUSE_1H
+      empfohlen, weil mobile_app_notification_action ein globales Event ist. Die Action-Liste wird
+      nur noch einmal gebaut und in Step 4 und Step 8 verwendet.
+    - CLEANUP: Interne Variable lg_tv_entities heißt jetzt lg_tv_notify_services. Debug-Tag zeigt
+      zusätzlich Kamera und Cooldown-Ergebnis, z. B. (S3 | garten | cd:sensor 42s | img:no-person | passive).
+      '| bool' konsequent auch bei debug_info_enabled, timestamp_filenames und action*_enabled.
+    - BREAKING: Dateinamen haben jetzt die Form <zeitstempel>_<instanz>_<zufall>.jpg/.mp4. Wer mit
+      timestamp_filenames: false auf eine feste Datei 'last_motion.jpg' verweist, findet sie jetzt als
+      last_motion_<instanz>.jpg (mit filename_random_suffix: false) bzw. gar nicht mehr fest benannt.
+    - BREAKING: Werte über 1568 bei importance_target_width/video_target_width sind im UI nicht mehr
+      einstellbar. HA validiert Blueprint-Inputs beim Laden nicht gegen den Selector, bestehende Werte
+      laufen weiter; beim nächsten Speichern im UI auf <= 1568 setzen.
+    - MIGRATION: Input lg_tv_entities (seit 4.0.6 ersetzt) aus den Instanzen entfernen. HA ignoriert
+      ihn (unbekannte Inputs erzeugen keinen Fehler), er hat keine Wirkung.
+    - MIGRATION: action*_id auf eindeutige IDs umstellen und die Actions-Automation
+      in einer Übergangsphase auf alte und neue IDs hören lassen (bereits zugestellte Notifications
+      behalten ACTION_n). Nach ca. einer Woche die alten ACTION_n-Trigger dort entfernen.
+    - HINWEIS: Ein per continue_on_error abgefangener Fehler erscheint weiterhin als ERROR im Log
+      ('Error executing script ...'), der Lauf läuft aber weiter.
+    - NEU: trace.stored_traces: 50 im Blueprint. Achtung: Eine eigene 'trace'-Angabe in der Instanz
+      (z. B. stored_traces: 30) überschreibt den Blueprint-Wert, dort entfernen oder auf 50 setzen.
 
     VERSION 4.2.2:
     - NEU: Vierter Action Button (action4_*) analog zu Button 1-3. Hinweis: iOS zeigt pro
@@ -68,7 +136,7 @@ blueprint:
     - CODE: YAML-Anchors genutzt, um Redundanz in den Input-Descriptions zu reduzieren.
 
   domain: automation
-  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-new.yaml
+  source_url: https://github.com/michaelf988/ha-cam-snapshot/blob/main/ha-cam-snapshot-5.yaml
 
   input:
     # =======================
@@ -76,7 +144,10 @@ blueprint:
     # =======================
     debug_info_enabled:
       name: "🐞 Debug-Infos in Nachrichten anzeigen"
-      description: "Fügt technische Details (Szenario, Level, API-Versuche) an das Ende der Push-Nachricht an."
+      description: >
+        Fügt technische Details (Szenario, Kamera, Cooldown-Ergebnis, Level, API-Versuche) an das Ende
+        der Push-Nachricht an. Der Blueprint speichert 50 Traces (trace.stored_traces), sofern die
+        Instanz keinen eigenen 'trace'-Wert setzt.
       default: false
       selector:
         boolean: {}
@@ -139,15 +210,33 @@ blueprint:
 
         snapshot_dir_fs:
           name: "Basis-Pfad (Dateisystem)"
+          description: >
+            Standard ist ein Pfad unter /config/www (Web-Pfad /local/...). ACHTUNG: Alles unter /config/www
+            ist OHNE Anmeldung abrufbar, daher den Zufalls-Suffix im Dateinamen aktiv lassen.
+            Optional: Ein Pfad unter /media (z. B. /media/cam_events) ist nur mit Anmeldung abrufbar,
+            die Web-URL (/media/local/...) wird dann automatisch abgeleitet.
           default: "/config/www/snapshots"
           selector:
             text:
             
         snapshot_dir_web:
           name: "Basis-Pfad (Web)"
+          description: >
+            Nur relevant, wenn der Dateisystem-Pfad NICHT unter /media liegt (z. B. /config/www/x -> /local/x).
+            Bei /media-Pfaden wird dieser Wert ignoriert und /media/local/... verwendet.
           default: "/local/snapshots"
           selector:
             text:
+
+        filename_random_suffix:
+          name: "Zufalls-Suffix im Dateinamen"
+          description: >
+            Hängt 12 zufällige Zeichen (a-z, 0-9) an jeden Dateinamen an, damit Snapshot- und Video-URLs nicht
+            erratbar sind. Wichtig, solange Dateien unter /config/www (/local) liegen. Nur deaktivieren, wenn ein
+            fester Dateiname (z. B. 'last_motion') gebraucht wird und die Dateien unter /media liegen.
+          default: true
+          selector:
+            boolean:
 
     # =======================
     # 3. AI GRUNDEINSTELLUNGEN
@@ -213,11 +302,16 @@ blueprint:
       input:
         importance_target_width:
           name: "Bild-Breite (Pixel)"
+          description: &desc_target_width >
+            Zielbreite, auf die LLM Vision die Bilder vor dem Upload skaliert. Empfehlung 1280.
+            Claude skaliert serverseitig auf höchstens ca. 1568 px lange Kante herunter, OpenAI (high detail)
+            und Ollama/MiniCPM-V nutzen ebenfalls nicht mehr. Größere Werte kosten nur Upload-Zeit und Latenz.
+            Seit 5.0.0 ist das Maximum 1568.
           default: 1280
           selector:
             number:
               min: 512
-              max: 3840
+              max: 1568
 
         importance_max_tokens:
           name: "Max Tokens"
@@ -271,11 +365,12 @@ blueprint:
       input:
         video_target_width:
           name: "Bild-Breite (Pixel)"
+          description: *desc_target_width
           default: 1280
           selector:
             number:
               min: 512
-              max: 3840
+              max: 1568
 
         video_max_frames:
           name: "Max Frames"
@@ -399,13 +494,32 @@ blueprint:
             text:
 
         delay_notification:
-          name: "Cooldown zwischen Benachrichtigungen"
+          name: "Cooldown pro Kamera (Sekunden)"
+          description: >
+            Mindestabstand zwischen zwei Läufen DERSELBEN Kamera (seit 5.0.0 pro Kamera statt global).
+            Kamera-Trigger und zugehöriger Bewegungssensor teilen sich den Cooldown.
+            Ohne Cooldown-Speicher gilt: Es zählt die Mindestpause seit dem letzten Ende der Bewegung auf dem
+            auslösenden Sensor (Zeit im Zustand 'off' vor dem neuen 'on'). Ein Sensor, der dauerhaft schneller
+            als der Cooldown pulsiert, bleibt dadurch stumm. Für einen exakten Abstand seit der letzten Meldung
+            den Cooldown-Speicher setzen. 0 = kein Cooldown.
           default: 15
           selector:
             number:
               min: 0
               max: 600
               unit_of_measurement: seconds
+
+        cooldown_store:
+          name: "Cooldown-Speicher (optional)"
+          description: >
+            Optionaler input_text-Helper (max: 255) für einen exakten Cooldown pro Kamera. Gespeichert wird
+            '<Kamera-Index>:<Epoch-Sekunden>' pro Kamera, kommagetrennt, nur solange der Cooldown läuft.
+            Eigenen Helper pro Instanz verwenden. Leer = Cooldown über die Sensor-Pause (siehe oben).
+          default: ""
+          selector:
+            entity:
+              filter:
+                domain: input_text
 
         alarm_repetition_count:
           name: "Alarm-Wiederholungen (Anzahl)"
@@ -472,6 +586,14 @@ blueprint:
           default: true
           selector:
             boolean:
+        action1_id:
+          name: "Button 1 Action-ID"
+          description: &desc_action_id >
+            ID, die beim Tippen im Event mobile_app_notification_action ankommt. Das Event ist global,
+            daher eindeutige IDs empfohlen, z. B. CEN_PAUSE_1H. Default ACTION_1..4 nur aus Kompatibilität.
+          default: "ACTION_1"
+          selector:
+            text:
         action1_title:
           name: "Button 1 Text"
           default: "Öffnen"
@@ -498,6 +620,12 @@ blueprint:
           default: true
           selector:
             boolean:
+        action2_id:
+          name: "Button 2 Action-ID"
+          description: *desc_action_id
+          default: "ACTION_2"
+          selector:
+            text:
         action2_title:
           name: "Button 2 Text"
           default: "Snooze 15min"
@@ -524,6 +652,12 @@ blueprint:
           default: false
           selector:
             boolean:
+        action3_id:
+          name: "Button 3 Action-ID"
+          description: *desc_action_id
+          default: "ACTION_3"
+          selector:
+            text:
         action3_title:
           name: "Button 3 Text"
           default: "Alarm aus"
@@ -550,6 +684,12 @@ blueprint:
           default: false
           selector:
             boolean:
+        action4_id:
+          name: "Button 4 Action-ID"
+          description: *desc_action_id
+          default: "ACTION_4"
+          selector:
+            text:
         action4_title:
           name: "Button 4 Text"
           default: "Ignorieren"
@@ -855,7 +995,13 @@ blueprint:
       input:
         s2_conditions:
           name: "Aktivierungsbedingungen"
-          description: *desc_conditions
+          description: >
+            Definiere hier, wann dieses Szenario aktiv sein soll.
+            Hinweis Helligkeit: Für "dunkel" nur 'below' ohne 'above' verwenden, z. B.
+            condition: numeric_state / entity_id: sensor.helligkeit_max / below: 5.
+            Mit 'above: 0' greift das Szenario bei genau 0 lx nicht. Ein numeric_state-Check ist bei
+            'unavailable' immer falsch; soll das Szenario auch dann greifen, eine 'or'-Bedingung mit
+            state: unavailable ergänzen.
           default: []
           selector:
             condition:
@@ -1573,6 +1719,7 @@ variables:
 
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
+  trigger_state: !input trigger_state
   notify_devices: !input notify_device
   
   provider: !input provider
@@ -1612,6 +1759,7 @@ variables:
   timestamp_format: !input timestamp_format
   snapshot_dir_fs_base: !input snapshot_dir_fs
   snapshot_dir_web_base: !input snapshot_dir_web
+  filename_random_suffix: !input filename_random_suffix
   
   tap_navigate: !input tap_navigate
   notification_sound: !input notification_sound
@@ -1619,6 +1767,7 @@ variables:
   notification_sound_critical: !input notification_sound_critical
   notification_volume_critical: !input notification_volume_critical
   delay_notification: !input delay_notification
+  cooldown_store_entity: !input cooldown_store
   alarm_repetition_count: !input alarm_repetition_count
   alarm_repetition_delay: !input alarm_repetition_delay
   
@@ -1629,7 +1778,7 @@ variables:
   tts_repeat_delay: !input tts_repeat_delay
   
   lg_tv_enable: !input lg_tv_enable
-  lg_tv_entities: !input lg_tv_notify_services
+  lg_tv_notify_services: !input lg_tv_notify_services
   lg_tv_conditions: !input lg_tv_conditions
   lg_tv_message_title: !input lg_tv_message_title
   lg_tv_min_detection: !input lg_tv_min_detection
@@ -1644,25 +1793,47 @@ variables:
   other_notify_repeat_delay: !input other_notify_repeat_delay
   
   action1_enabled: !input action1_enabled
+  action1_id: !input action1_id
   action1_title: !input action1_title
   action1_uri: !input action1_uri
   action1_icon: !input action1_icon
   action1_destructive: !input action1_destructive
   action2_enabled: !input action2_enabled
+  action2_id: !input action2_id
   action2_title: !input action2_title
   action2_uri: !input action2_uri
   action2_icon: !input action2_icon
   action2_destructive: !input action2_destructive
   action3_enabled: !input action3_enabled
+  action3_id: !input action3_id
   action3_title: !input action3_title
   action3_uri: !input action3_uri
   action3_icon: !input action3_icon
   action3_destructive: !input action3_destructive
   action4_enabled: !input action4_enabled
+  action4_id: !input action4_id
   action4_title: !input action4_title
   action4_uri: !input action4_uri
   action4_icon: !input action4_icon
   action4_destructive: !input action4_destructive
+
+  # Action-Liste nur einmal bauen (5.0.0), genutzt in Step 4 und Step 8 über push_data_base.
+  # Leere action{n}_id fällt auf ACTION_{n} zurück.
+  notification_actions: >
+    {% set defs = [
+      [action1_enabled, action1_id, 'ACTION_1', action1_title, action1_uri, action1_icon, action1_destructive],
+      [action2_enabled, action2_id, 'ACTION_2', action2_title, action2_uri, action2_icon, action2_destructive],
+      [action3_enabled, action3_id, 'ACTION_3', action3_title, action3_uri, action3_icon, action3_destructive],
+      [action4_enabled, action4_id, 'ACTION_4', action4_title, action4_uri, action4_icon, action4_destructive]
+    ] %}
+    {% set ns = namespace(actions=[]) %}
+    {% for d in defs if d[0] | bool %}
+      {% set a = {'action': ((d[1] | default('', true) | string | trim) or d[2]), 'title': d[3], 'destructive': d[6] | bool} %}
+      {% if d[4] %}{% set a = a | combine({'uri': d[4]}) %}{% endif %}
+      {% if d[5] %}{% set a = a | combine({'icon': d[5]}) %}{% endif %}
+      {% set ns.actions = ns.actions + [a] %}
+    {% endfor %}
+    {{ ns.actions }}
 
   scenario_helper: !input scenario_helper
   scenario_fallback: !input scenario_fallback
@@ -1775,7 +1946,7 @@ variables:
   s6_alarm_mode: !input s6_alarm_mode
   
   camera_entity_snapshot: >
-    {% if trigger is defined and trigger.entity_id %}
+    {% if trigger is defined and trigger.entity_id is defined and trigger.entity_id %}
       {% set tid = trigger.entity_id %}
       {% if tid.startswith('binary_sensor') and (tid in motion_sensors_list) %}
         {% set i = motion_sensors_list.index(tid) %}
@@ -1791,10 +1962,29 @@ variables:
   
   camera_friendly: "{{ state_attr(camera_entity_snapshot, 'friendly_name') or 'Kamera' }}"
   camera_file_path: "{{ camera_friendly | slugify }}"
+  # Instanz-Kennung im Dateinamen (5.0.0): Mehrere Instanzen im selben Verzeichnis überschreiben sich nicht mehr.
+  instance_slug: "{{ ((this.entity_id if (this is defined and this.entity_id is defined) else 'automation.cen') | replace('automation.', '')) }}"
   snapshot_dir_fs_final: "{{ (snapshot_dir_fs_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
-  snapshot_dir_web_final: "{{ (snapshot_dir_web_base.rstrip('/')) ~ '/' ~ camera_file_path }}"
+  # Web-Pfad (5.0.0): Liegt der Dateisystem-Pfad unter /media, wird die URL daraus abgeleitet
+  # (/media/X -> /media/local/X, Standard-Mapping media_dirs local: /media, nur mit Anmeldung abrufbar).
+  # Sonst wie bisher snapshot_dir_web (www/local-Pfade bleiben kompatibel, aber öffentlich).
+  snapshot_dir_web_final: >
+    {% set fs = snapshot_dir_fs_base.rstrip('/') %}
+    {% if fs == '/media' or fs.startswith('/media/') %}
+      {{ '/media/local' ~ fs[6:] ~ '/' ~ camera_file_path }}
+    {% else %}
+      {{ (snapshot_dir_web_base.rstrip('/')) ~ '/' ~ camera_file_path }}
+    {% endif %}
   
-  filename_base: "{{ (timestamp_filenames and now().strftime(timestamp_format) or 'last_motion') }}"
+  # Dateiname (5.0.0): <zeitstempel|last_motion>_<instanz>[_<12 Zufallszeichen a-z0-9>]
+  # Der Zufallsteil macht Dateinamen unter /local nicht mehr erratbar (filename_random_suffix).
+  filename_base: >
+    {% set base = now().strftime(timestamp_format) if (timestamp_filenames | bool) else 'last_motion' %}
+    {% set ns = namespace(sfx='') %}
+    {% if filename_random_suffix | bool %}
+      {% for i in range(12) %}{% set ns.sfx = ns.sfx ~ ('abcdefghijklmnopqrstuvwxyz0123456789' | random) %}{% endfor %}
+    {% endif %}
+    {{ base ~ '_' ~ instance_slug ~ (('_' ~ ns.sfx) if ns.sfx else '') }}
   
   snapshot_filename: "{{ filename_base ~ '.jpg' }}"
   file_path: "{{ snapshot_dir_fs_final ~ '/' ~ snapshot_filename }}"
@@ -1823,22 +2013,123 @@ variables:
   
   notify_services_all: "{{ device_name_map }}"
 
-mode: queued
-max: 25
+# 5.0.0: parallel statt queued. Kameras blockieren sich nicht mehr gegenseitig; Doppel-Läufe
+# derselben Kamera verhindert der Cooldown pro Kamera (Step 0a). max 10 begrenzt gleichzeitige
+# LLM-Aufrufe und RTSP-Sessions am NVR (siehe Changelog). Verwerfen erfolgt ohne Log (silent).
+mode: parallel
+max: 10
 max_exceeded: silent
 
-trigger:
-  - platform: state
+# 5.0.0: 50 Traces als Default für die Analyse von Häufungen. Eine 'trace'-Angabe in der Instanz überschreibt das.
+trace:
+  stored_traces: 50
+
+# 5.0.0: Moderne Syntax + not_from, damit ein NVR-Reconnect (unavailable/unknown -> on) nicht auslöst.
+triggers:
+  - trigger: state
     entity_id: !input camera_entities
     to: !input trigger_state
+    not_from:
+      - unavailable
+      - unknown
     id: "camera_trigger"
-  - platform: state
+  - trigger: state
     entity_id: !input motion_sensors
     to: "on"
+    not_from:
+      - unavailable
+      - unknown
     id: "motion_sensor_trigger"
 
-action:
-  # Step 0: Szenario-Bestimmung
+actions:
+  # Step 0a: Cooldown pro Kamera (5.0.0)
+  # Schlüssel ist die aufgelöste Kamera (camera_entity_snapshot), nicht die Trigger-Entity.
+  # Modus 'sensor' (Default, ohne Helper): Pause seit dem letzten Zustandswechsel der auslösenden
+  #   Entity (trigger.from_state.last_changed), bei Bewegungssensoren also seit dem letzten Ende der Bewegung.
+  # Modus 'store' (cooldown_store gesetzt): exakter Zeitstempel pro Kamera im input_text,
+  #   Format "<index>:<epoch>,<index>:<epoch>" (nur Einträge, deren Cooldown noch läuft).
+  # In beiden Modi: Ist eine andere Trigger-Entity DERSELBEN Kamera (Kamera-Trigger bzw. zugehöriger
+  #   Bewegungssensor) innerhalb des Cooldowns FRÜHER aktiv geworden, gilt der Lauf als Duplikat.
+  # Rest-Race: Siehe Changelog 5.0.0 (Store-Modus ist kein atomares Read-Modify-Write).
+  - variables:
+      cooldown: >
+        {% set cd = delay_notification | float(0) %}
+        {% set tid = trigger.entity_id if (trigger is defined and trigger.entity_id is defined and trigger.entity_id) else '' %}
+        {% set trig_id = trigger.id if (trigger is defined and trigger.id is defined) else '' %}
+        {% set t_now = as_timestamp(now()) %}
+        {% set t_trig = as_timestamp(trigger.to_state.last_changed, t_now) if (tid and trigger.to_state is defined and trigger.to_state) else t_now %}
+        {% set cams = camera_entities_list or [] %}
+        {% set key = (cams.index(camera_entity_snapshot) | string) if camera_entity_snapshot in cams else (camera_entity_snapshot | replace('camera.', '')) %}
+        {% set store = cooldown_store_entity | default('', true) %}
+        {% set store_ok = store is string and store.startswith('input_text.') and state_attr(store, 'max') is not none %}
+        {% set mode = 'off' if cd <= 0 else ('store' if store_ok else 'sensor') %}
+        {% set ns = namespace(last=none, sib='') %}
+        {% if mode == 'store' %}
+          {% for e in states(store).split(',') %}
+            {% set p = e.split(':') %}
+            {% if p | length == 2 and p[0] == key %}{% set ns.last = p[1] | float(0) %}{% endif %}
+          {% endfor %}
+        {% elif mode == 'sensor' and tid and trigger.from_state is defined and trigger.from_state %}
+          {% set ns.last = as_timestamp(trigger.from_state.last_changed, none) %}
+        {% endif %}
+        {% if mode != 'off' %}
+          {% set sibs = namespace(list=[]) %}
+          {% for m in (motion_sensors_list or []) %}
+            {% set i = loop.index0 %}
+            {% set c = cams[i] if cams | length > i else (cams[0] if cams | length > 0 else '') %}
+            {% if c == camera_entity_snapshot and m != tid %}{% set sibs.list = sibs.list + [m] %}{% endif %}
+          {% endfor %}
+          {% if camera_entity_snapshot in cams and camera_entity_snapshot != tid %}{% set sibs.list = sibs.list + [camera_entity_snapshot] %}{% endif %}
+          {% for s in sibs.list if not ns.sib %}
+            {% set active = trigger_state if s.startswith('camera.') else 'on' %}
+            {% set so = expand(s) %}
+            {% if is_state(s, active) and so | length > 0 %}
+              {% set st = as_timestamp(so[0].last_changed, 0) %}
+              {% if (t_trig - st) < cd and (st < t_trig or (st == t_trig and trig_id == 'camera_trigger')) %}{% set ns.sib = s %}{% endif %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {% set elapsed = (t_trig - ns.last) if ns.last is not none else none %}
+        {% set ok = mode == 'off' or ((elapsed is none or elapsed > cd) and not ns.sib) %}
+        {% if mode == 'off' %}{% set detail = 'off' %}
+        {% elif ns.sib %}{% set detail = mode ~ ' dup:' ~ ns.sib %}
+        {% elif elapsed is none %}{% set detail = mode ~ ' neu' %}
+        {% else %}{% set detail = mode ~ ' ' ~ (elapsed | int) ~ 's' %}{% endif %}
+        {{ {'ok': ok, 'mode': mode, 'camera': camera_entity_snapshot, 'key': key, 'trigger_entity': tid,
+            'elapsed': (elapsed | round(1)) if elapsed is not none else none, 'cooldown': cd,
+            'sibling': ns.sib, 'store': store if store_ok else '', 'detail': detail} }}
+      debug_camera_info: "{{ camera_entity_snapshot | replace('camera.', '') }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ not (cooldown.ok | bool) }}"
+    then:
+      - stop: "Cooldown aktiv für diese Kamera. Details (Kamera, Modus, vergangene Sekunden, Duplikat) in der Variable 'cooldown'."
+
+  # Stempel setzen: erste Aktion nach bestandenem Cooldown (nur Store-Modus).
+  # Abgelaufene Einträge werden verworfen, der eigene Eintrag steht vorne (übersteht ein Kürzen auf 'max').
+  - if:
+      - condition: template
+        value_template: "{{ cooldown.mode == 'store' }}"
+    then:
+      - action: input_text.set_value
+        continue_on_error: true
+        target:
+          entity_id: "{{ cooldown.store }}"
+        data:
+          value: >
+            {% set cd = cooldown.cooldown | float(0) %}
+            {% set t = as_timestamp(now()) %}
+            {% set ns = namespace(items=[cooldown.key ~ ':' ~ (t | int)]) %}
+            {% for e in states(cooldown.store).split(',') %}
+              {% set p = e.split(':') %}
+              {% if p | length == 2 and p[0] != cooldown.key and (t - (p[1] | float(0))) < cd %}
+                {% set ns.items = ns.items + [p[0] ~ ':' ~ p[1]] %}
+              {% endif %}
+            {% endfor %}
+            {{ (ns.items | join(','))[:(state_attr(cooldown.store, 'max') | int(255))] }}
+
+  # Step 0b: Szenario-Bestimmung
   - choose:
       - conditions:
           - condition: template
@@ -2002,535 +2293,489 @@ action:
         {% elif active_scenario == '4a' %}{{ s4a_alarm_conditions | default([]) }}
         {% else %}[]{% endif %}
   
-  # Check notification cooldown
-  - if:
-      - condition: template
-        value_template: >
-          {{ not this.attributes.last_triggered
-             or (now() - this.attributes.last_triggered).total_seconds() > delay_notification }}
-    then:
-      # 1) Create snapshot and/or video
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ (current_snapshot | bool) and (current_video | bool) and camera_entity_snapshot != '' }}"
-            sequence:
-              - parallel:
-                  - action: camera.snapshot
-                    target:
-                      entity_id: "{{ camera_entity_snapshot }}"
-                    data:
-                      filename: "{{ file_path }}"
-                  - action: camera.record
-                    target:
-                      entity_id: "{{ camera_entity_snapshot }}"
-                    data:
-                      filename: "{{ video_file_path }}"
-                      duration: "{{ video_duration }}"
-                      lookback: "{{ video_lookback }}"
-          - conditions:
-              - condition: template
-                value_template: "{{ (current_snapshot | bool) and not (current_video | bool) and camera_entity_snapshot != '' }}"
-            sequence:
+  # 1) Create snapshot and/or video
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ (current_snapshot | bool) and (current_video | bool) and camera_entity_snapshot != '' }}"
+        sequence:
+          - parallel:
               - action: camera.snapshot
+                continue_on_error: true
                 target:
                   entity_id: "{{ camera_entity_snapshot }}"
                 data:
                   filename: "{{ file_path }}"
-          - conditions:
-              - condition: template
-                value_template: "{{ not (current_snapshot | bool) and (current_video | bool) and camera_entity_snapshot != '' }}"
-            sequence:
               - action: camera.record
+                continue_on_error: true
                 target:
                   entity_id: "{{ camera_entity_snapshot }}"
                 data:
                   filename: "{{ video_file_path }}"
                   duration: "{{ video_duration }}"
                   lookback: "{{ video_lookback }}"
-      
-      # 2) Importance analysis (with Structured Output)
-      - variables:
-          importance_status: "{% if current_importance | bool %}pending{% else %}disabled{% endif %}"
-          importance_attempts_used: 0
-          _importance_result_temp: ""
-          _importance_title_temp: ""
-      
-      - if:
+      - conditions:
           - condition: template
-            value_template: "{{ current_importance | bool }}"
-        then:
-          - repeat:
-              while:
-                - condition: template
-                  value_template: >
-                    {% set valid = ['no-person', 'probably-person', 'definitely-person'] %}
-                    {% set r = _importance_result_temp | lower %}
-                    {% set ok = valid | select('in', r) | list | length > 0 %}
-                    {{ not ok and repeat.index <= importance_max_retries }}
-              sequence:
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index > 1 }}"
-                  then:
-                    - delay: !input importance_retry_delay
-                - action: llmvision.image_analyzer
-                  data:
-                    image_file: "{{ file_path }}"
-                    provider: !input provider
-                    model: !input model
-                    message: >
-                      Current time: {{ now().strftime('%H:%M') }}
-
-                      {% if repeat.index > 1 %}IMPORTANT: You MUST respond with a valid JSON classification. Choose exactly one: no-person, probably-person, or definitely-person.
-
-                      {% endif %}{{ importance_prompt }}
-                    include_filename: true
-                    target_width: "{{ importance_target_width }}"
-                    max_tokens: "{{ importance_max_tokens }}"
-                    generate_title: true
-                    store_in_timeline: false
-                    response_format: json
-                    structure: "{{ detection_structure }}"
-                  response_variable: _importance_response
-                - variables:
-                    _importance_result_temp: >
-                      {% set sr = (_importance_response | default({})).structured_response | default(none) %}
-                      {% if sr is mapping and sr.classification is defined %}
-                        {{ sr.classification }}
-                      {% else %}
-                        {% set raw = ((_importance_response | default({})).response_text | default('')) | trim %}
-                        {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
-                          {% set parsed = raw | from_json %}
-                          {% if parsed is mapping and parsed.classification is defined %}
-                            {{ parsed.classification }}
-                          {% else %}
-                            {{ raw }}
-                          {% endif %}
-                        {% else %}
-                          {{ raw }}
-                        {% endif %}
-                      {% endif %}
-                    _importance_title_temp: "{{ (_importance_response | default({})).title | default('') }}"
-                    importance_attempts_used: "{{ repeat.index }}"
-          - variables:
-              importance_status: >
-                {% if _importance_result_temp == '' %}no_response
-                {% elif 'definitely-person' in (_importance_result_temp | lower) %}success
-                {% elif 'probably-person' in (_importance_result_temp | lower) %}success
-                {% elif 'no-person' in (_importance_result_temp | lower) %}success
-                {% else %}invalid_response{% endif %}
-      
-      # 2b) Detection level
-      - variables:
-          detection_level: >
-            {% if importance_status == 'disabled' %}none
-            {% elif importance_status in ['no_response', 'invalid_response'] %}probably-person
-            {% else %}
-              {% set t = _importance_result_temp | lower %}
-              {% if 'definitely-person' in t %}definitely-person
-              {% elif 'probably-person' in t %}probably-person
-              {% elif 'no-person' in t %}no-person
-              {% else %}probably-person{% endif %}
-            {% endif %}
-          initial_interruption_level: >
-            {% if detection_level == 'definitely-person' %}{{ current_level_definitely_person }}
-            {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
-            {% else %}{{ current_level_no_person }}{% endif %}
-      
-      # Initialize variables for debugging to avoid crashes in Step 4
-      - variables:
-          verified_detection: "{{ detection_level }}"
-          final_interruption_level: "{{ initial_interruption_level }}"
-          video_attempts_used: 0
-
-      # 3) Gate check
-      - if:
-          - condition: template
-            value_template: "{{ current_gate_enable | bool }}"
-          - condition: template
-            value_template: "{{ (level_rank[initial_interruption_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}"
-        then:
-          - stop: "Gate: Level {{ initial_interruption_level }} < Threshold {{ current_gate_threshold }}"
-      
-      # 4) Mobile push notification
-      - if:
-          - condition: template
-            value_template: "{{ current_mobile_push | bool }}"
-        then:
-          - repeat:
-              for_each: "{{ notify_services_all }}"
-              sequence:
-                - action: "notify.{{ repeat.item }}"
-                  continue_on_error: true
-                  data:
-                    title: "{{ camera }} - {{ label }} um {{ now().strftime('%H:%M') }}"
-                    message: >
-                      {% if importance_status == 'disabled' %}Bewegung erkannt
-                      {% elif importance_status == 'no_response' %}Bewegung erkannt - Analyse nicht möglich
-                      {% elif importance_status == 'invalid_response' %}Bewegung erkannt - Analyse fehlerhaft
-                      {% elif detection_level == 'definitely-person' %}Person erkannt
-                      {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
-                      {% else %}Bewegung erkannt - keine Person{% endif %}{% if debug_info_enabled %}
-
-                      (S{{ active_scenario }} | {% if importance_status == 'disabled' %}skip{% else %}img{% endif %}:{{ detection_level }} | {{ initial_interruption_level }}){% endif %}
-                    data:
-                      url: "{{ tap_navigate }}"
-                      clickAction: "{{ tap_navigate }}"
-                      tag: "{{ notification_tag }}"
-                      group: "cams"
-                      attachment:
-                        url: "{{ snapshot_access_file_path }}"
-                        content_type: JPEG
-                      actions: >
-                        {% set actions = [] %}
-                        {% if action1_enabled %}
-                          {% set a = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
-                          {% if action1_uri %}{% set a = a | combine({'uri': action1_uri}) %}{% endif %}
-                          {% if action1_icon %}{% set a = a | combine({'icon': action1_icon}) %}{% endif %}
-                          {% set actions = actions + [a] %}
-                        {% endif %}
-                        {% if action2_enabled %}
-                          {% set a = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
-                          {% if action2_uri %}{% set a = a | combine({'uri': action2_uri}) %}{% endif %}
-                          {% if action2_icon %}{% set a = a | combine({'icon': action2_icon}) %}{% endif %}
-                          {% set actions = actions + [a] %}
-                        {% endif %}
-                        {% if action3_enabled %}
-                          {% set a = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
-                          {% if action3_uri %}{% set a = a | combine({'uri': action3_uri}) %}{% endif %}
-                          {% if action3_icon %}{% set a = a | combine({'icon': action3_icon}) %}{% endif %}
-                          {% set actions = actions + [a] %}
-                        {% endif %}
-                        {% if action4_enabled %}
-                          {% set a = {'action': 'ACTION_4', 'title': action4_title, 'destructive': action4_destructive} %}
-                          {% if action4_uri %}{% set a = a | combine({'uri': action4_uri}) %}{% endif %}
-                          {% if action4_icon %}{% set a = a | combine({'icon': action4_icon}) %}{% endif %}
-                          {% set actions = actions + [a] %}
-                        {% endif %}
-                        {{ actions }}
-                      push:
-                        interruption-level: "{{ initial_interruption_level }}"
-                        sound:
-                          name: "{{ notification_sound_critical if initial_interruption_level == 'critical' else notification_sound }}"
-                          volume: "{{ notification_volume_critical if initial_interruption_level == 'critical' else notification_volume }}"
-                          critical: "{{ initial_interruption_level == 'critical' }}"
-      
-      # 5) Video analysis with Structured Output and store_in_timeline
-      - variables:
-          video_should_run: >
-            {% if not (current_video | bool) %}false
-            {% elif current_video_min_detection == 'always' %}true
-            {% elif current_video_min_detection == 'never' %}false
-            {% elif current_video_min_detection == 'no-person' %}true
-            {% elif current_video_min_detection == 'probably-person' and detection_rank[detection_level] >= 1 %}true
-            {% elif current_video_min_detection == 'definitely-person' and detection_rank[detection_level] >= 2 %}true
-            {% else %}false{% endif %}
-          video_status: "{% if video_should_run | bool %}pending{% else %}disabled{% endif %}"
-          video_result: ""
-          _video_title_temp: ""
-      
-      - if:
-          - condition: template
-            value_template: "{{ (video_should_run | bool) and camera_entity_snapshot != '' }}"
-        then:
-          - variables:
-              _video_result_temp: "probably-person"
-          
-          # Explicit Type Casting for Integers
-          - delay: 
-              seconds: "{{ video_duration | int + video_lookback | int + 2 }}"
-          
-          - repeat:
-              while:
-                - condition: template
-                  value_template: "{{ _video_result_temp == 'probably-person' and repeat.index <= video_max_retries }}"
-              sequence:
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index > 1 }}"
-                  then:
-                    - delay: !input video_retry_delay
-                - action: llmvision.video_analyzer
-                  continue_on_error: true
-                  data:
-                    video_file: "{{ video_file_path }}"
-                    provider: !input provider
-                    model: !input model
-                    message: >
-                      Current time: {{ now().strftime('%H:%M') }}
-
-                      {% if repeat.index > 1 %}IMPORTANT: Avoid "probably-person". Make your best assessment between "definitely-person" and "no-person".
-
-                      {% endif %}{{ video_prompt }}
-                    include_filename: true
-                    max_frames: "{{ video_max_frames }}"
-                    target_width: "{{ video_target_width }}"
-                    max_tokens: "{{ video_max_tokens }}"
-                    generate_title: "{{ store_in_timeline | bool }}"
-                    store_in_timeline: false
-                    expose_images: "{{ store_in_timeline | bool }}"
-                    response_format: json
-                    structure: "{{ detection_structure }}"
-                  response_variable: _response
-                - variables:
-                    _video_result_temp: >
-                      {% set sr = ((_response | default({})).structured_response | default(none)) %}
-                      {% if sr is mapping and sr.classification is defined %}
-                        {{ sr.classification }}
-                      {% else %}
-                        {% set raw = ((_response | default({})).response_text | default('')) | trim %}
-                        {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
-                          {% set parsed = raw | from_json %}
-                          {% if parsed is mapping and parsed.classification is defined %}
-                            {{ parsed.classification }}
-                          {% else %}
-                            {{ raw }}
-                          {% endif %}
-                        {% else %}
-                          {{ raw }}
-                        {% endif %}
-                      {% endif %}
-                    _video_title_temp: "{{ (_response | default({})).title | default('') }}"
-                    video_attempts_used: "{{ repeat.index }}"
-          - variables:
-              video_status: >
-                {% if _video_result_temp == '' %}no_response
-                {% elif _video_result_temp == 'probably-person' %}still_unclear
-                {% else %}success{% endif %}
-              video_result: "{{ _video_result_temp }}"
-              verified_detection: >
-                {% if _video_result_temp == 'definitely-person' %}definitely-person
-                {% elif _video_result_temp == 'no-person' %}no-person
-                {% else %}probably-person{% endif %}
-              final_interruption_level: >
-                {% if verified_detection == 'definitely-person' %}{{ current_level_definitely_person }}
-                {% elif verified_detection == 'probably-person' %}{{ current_level_probably_person }}
-                {% else %}{{ current_level_no_person }}{% endif %}
-      
-      # 5b) store_in_timeline: Create timeline event after analysis is complete
-      - if:
-          - condition: template
-            value_template: "{{ store_in_timeline | bool }}"
-        then:
-          - action: llmvision.create_event
+            value_template: "{{ (current_snapshot | bool) and not (current_video | bool) and camera_entity_snapshot != '' }}"
+        sequence:
+          - action: camera.snapshot
             continue_on_error: true
+            target:
+              entity_id: "{{ camera_entity_snapshot }}"
             data:
-              title: >
-                {% if _video_title_temp | default('') %}
-                  {{ _video_title_temp }}
-                {% elif _importance_title_temp | default('') %}
-                  {{ _importance_title_temp }}
-                {% else %}
-                  Kamera Event
-                {% endif %}
-              description: >
-                {% if video_status | default('disabled') == 'success' and video_result | default('') %}
-                  {{ video_result_map[video_result] | default(video_result) }}
-                {% elif detection_level | default('') %}
-                  {{ video_result_map[detection_level] | default(detection_level) }}
-                {% else %}
-                  Keine Analyse Ergebnisse
-                {% endif %}
-              camera_entity: "{{ camera_entity_snapshot }}"
-              label: >
-                {% if verified_detection in ['definitely-person', 'probably-person'] %}Person
-                {% else %}Camera{% endif %}
+              filename: "{{ file_path }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ not (current_snapshot | bool) and (current_video | bool) and camera_entity_snapshot != '' }}"
+        sequence:
+          - action: camera.record
+            continue_on_error: true
+            target:
+              entity_id: "{{ camera_entity_snapshot }}"
+            data:
+              filename: "{{ video_file_path }}"
+              duration: "{{ video_duration }}"
+              lookback: "{{ video_lookback }}"
 
-      # 6) TV notifications - LG WebOS TV
+  # 1b) Snapshot-Status und gemeinsame Push-Daten (5.0.0)
+  # continue_on_error liefert kein Fehlersignal. snapshot_created ist daher eine Best-Effort-Annahme:
+  # Snapshot im Szenario aktiv UND Kamera beim Aufruf weder unavailable noch unknown.
+  # push_data_base wird von Step 4 und Step 8 genutzt (Actions nur einmal gebaut, Attachment nur mit Snapshot).
+  - variables:
+      snapshot_created: >
+        {{ (current_snapshot | bool) and camera_entity_snapshot != ''
+           and states(camera_entity_snapshot) not in ['unavailable', 'unknown'] }}
+      push_data_base: >
+        {% set d = {'url': tap_navigate, 'clickAction': tap_navigate, 'tag': notification_tag,
+                    'group': 'cams', 'actions': notification_actions} %}
+        {% if snapshot_created | bool %}
+          {% set d = d | combine({'attachment': {'url': snapshot_access_file_path, 'content_type': 'JPEG'}}) %}
+        {% endif %}
+        {{ d }}
+
+  # 2) Importance analysis (with Structured Output)
+  # Läuft nur mit Snapshot (5.0.0). Snapshot im Szenario aus -> disabled.
+  # Snapshot an, aber Kamera nicht verfügbar -> no_response (Fallback probably-person, kein API-Aufruf).
+  - variables:
+      importance_status: >
+        {% if not (current_importance | bool) or not (current_snapshot | bool) %}disabled
+        {% elif not (snapshot_created | bool) %}no_response
+        {% else %}pending{% endif %}
+      importance_attempts_used: 0
+      _importance_result_temp: ""
+      _importance_title_temp: ""
+
+  - if:
+      - condition: template
+        value_template: "{{ importance_status == 'pending' }}"
+    then:
+      - repeat:
+          while:
+            - condition: template
+              value_template: >
+                {% set valid = ['no-person', 'probably-person', 'definitely-person'] %}
+                {% set r = _importance_result_temp | lower %}
+                {% set ok = valid | select('in', r) | list | length > 0 %}
+                {{ not ok and repeat.index <= importance_max_retries }}
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ repeat.index > 1 }}"
+              then:
+                - delay: !input importance_retry_delay
+            # Reset, damit ein fehlgeschlagener Aufruf (Exception) nicht mit einer alten Antwort weiterläuft
+            - variables:
+                _importance_response: {}
+            - action: llmvision.image_analyzer
+              continue_on_error: true
+              data:
+                image_file: "{{ file_path }}"
+                provider: !input provider
+                model: !input model
+                message: >
+                  Current time: {{ now().strftime('%H:%M') }}
+
+                  {% if repeat.index > 1 %}IMPORTANT: You MUST respond with a valid JSON classification. Choose exactly one: no-person, probably-person, or definitely-person.
+
+                  {% endif %}{{ importance_prompt }}
+                include_filename: true
+                target_width: "{{ importance_target_width }}"
+                max_tokens: "{{ importance_max_tokens }}"
+                generate_title: true
+                store_in_timeline: false
+                response_format: json
+                structure: "{{ detection_structure }}"
+              response_variable: _importance_response
+            - variables:
+                _importance_result_temp: >
+                  {% set sr = (_importance_response | default({})).structured_response | default(none) %}
+                  {% if sr is mapping and sr.classification is defined %}
+                    {{ sr.classification }}
+                  {% else %}
+                    {% set raw = ((_importance_response | default({})).response_text | default('')) | trim %}
+                    {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
+                      {% set parsed = raw | from_json %}
+                      {% if parsed is mapping and parsed.classification is defined %}
+                        {{ parsed.classification }}
+                      {% else %}
+                        {{ raw }}
+                      {% endif %}
+                    {% else %}
+                      {{ raw }}
+                    {% endif %}
+                  {% endif %}
+                _importance_title_temp: "{{ (_importance_response | default({})).title | default('') }}"
+                importance_attempts_used: "{{ repeat.index }}"
       - variables:
-          lg_tv_should_send: >
-            {% if not (current_tv_notify | bool) or not (lg_tv_enable | bool) or lg_tv_entities|length == 0 %}false
-            {% elif lg_tv_min_detection == 'always' %}true
-            {% elif lg_tv_min_detection == 'never' %}false
-            {% elif lg_tv_min_detection == 'no-person' %}true
-            {% elif lg_tv_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
-            {% elif lg_tv_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
-            {% else %}false{% endif %}
+          importance_status: >
+            {% if _importance_result_temp == '' %}no_response
+            {% elif 'definitely-person' in (_importance_result_temp | lower) %}success
+            {% elif 'probably-person' in (_importance_result_temp | lower) %}success
+            {% elif 'no-person' in (_importance_result_temp | lower) %}success
+            {% else %}invalid_response{% endif %}
 
-      - if:
-          - condition: template
-            value_template: "{{ lg_tv_should_send | bool }}"
-          - condition: and
-            conditions: !input lg_tv_conditions
-        then:
-          - repeat:
-              count: >
-                {{ lg_tv_repeat_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
-              sequence:
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index > 1 }}"
-                  then:
-                    - delay: !input lg_tv_repeat_delay
-                - repeat:
-                    for_each: "{{ lg_tv_entities }}"
-                    sequence:
-                      - action: "{{ repeat.item }}"
-                        continue_on_error: true
-                        data:
-                          title: "{{ lg_tv_message_title }}"
-                          message: >
-                            {% if video_status == 'success' and video_result %}
-                              {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                            {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
-                            {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
-                            {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
-      
-      # 6b) TV notifications - Other Notify Services
+  # 2b) Detection level
+  - variables:
+      detection_level: >
+        {% if importance_status == 'disabled' %}none
+        {% elif importance_status in ['no_response', 'invalid_response'] %}probably-person
+        {% else %}
+          {% set t = _importance_result_temp | lower %}
+          {% if 'definitely-person' in t %}definitely-person
+          {% elif 'probably-person' in t %}probably-person
+          {% elif 'no-person' in t %}no-person
+          {% else %}probably-person{% endif %}
+        {% endif %}
+      initial_interruption_level: >
+        {% if detection_level == 'definitely-person' %}{{ current_level_definitely_person }}
+        {% elif detection_level == 'probably-person' %}{{ current_level_probably_person }}
+        {% else %}{{ current_level_no_person }}{% endif %}
+
+  # Initialize variables for debugging to avoid crashes in Step 4
+  - variables:
+      verified_detection: "{{ detection_level }}"
+      final_interruption_level: "{{ initial_interruption_level }}"
+      video_attempts_used: 0
+
+  # 3) Gate check
+  - if:
+      - condition: template
+        value_template: "{{ current_gate_enable | bool }}"
+      - condition: template
+        value_template: "{{ (level_rank[initial_interruption_level]|default(0)) < (level_rank[current_gate_threshold]|default(0)) }}"
+    then:
+      - stop: "Gate: Level {{ initial_interruption_level }} < Threshold {{ current_gate_threshold }}"
+
+  # 4) Mobile push notification
+  - if:
+      - condition: template
+        value_template: "{{ current_mobile_push | bool }}"
+    then:
+      - repeat:
+          for_each: "{{ notify_services_all }}"
+          sequence:
+            - action: "notify.{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ camera }} - {{ label }} um {{ now().strftime('%H:%M') }}"
+                message: >
+                  {% if importance_status == 'disabled' %}Bewegung erkannt
+                  {% elif importance_status == 'no_response' %}Bewegung erkannt - Analyse nicht möglich
+                  {% elif importance_status == 'invalid_response' %}Bewegung erkannt - Analyse fehlerhaft
+                  {% elif detection_level == 'definitely-person' %}Person erkannt
+                  {% elif detection_level == 'probably-person' %}Möglicherweise Person erkannt
+                  {% else %}Bewegung erkannt - keine Person{% endif %}{% if debug_info_enabled | bool %}
+
+                  (S{{ active_scenario }} | {{ debug_camera_info }} | cd:{{ cooldown.detail }} | {% if importance_status == 'disabled' %}skip{% else %}img{% endif %}:{{ detection_level }} | {{ initial_interruption_level }}){% endif %}
+                data: >
+                  {% set crit = initial_interruption_level == 'critical' %}
+                  {{ push_data_base | combine({'push': {
+                       'interruption-level': initial_interruption_level,
+                       'sound': {
+                         'name': notification_sound_critical if crit else notification_sound,
+                         'volume': notification_volume_critical if crit else notification_volume,
+                         'critical': crit}}}) }}
+
+  # 5) Video analysis with Structured Output and store_in_timeline
+  # detection_level 'none' (Wichtigkeitsanalyse aus) hat Rang 0: Schwellen probably-/definitely-person
+  # gelten dann als NICHT erreicht (5.0.0, vorher Template-Fehler). Gleiches gilt für TV/Other-Notify.
+  - variables:
+      video_should_run: >
+        {% if not (current_video | bool) %}false
+        {% elif current_video_min_detection == 'always' %}true
+        {% elif current_video_min_detection == 'never' %}false
+        {% elif current_video_min_detection == 'no-person' %}true
+        {% elif current_video_min_detection == 'probably-person' and detection_rank.get(detection_level, 0) >= 1 %}true
+        {% elif current_video_min_detection == 'definitely-person' and detection_rank.get(detection_level, 0) >= 2 %}true
+        {% else %}false{% endif %}
+      video_status: "{% if video_should_run | bool %}pending{% else %}disabled{% endif %}"
+      video_result: ""
+      _video_title_temp: ""
+
+  - if:
+      - condition: template
+        value_template: "{{ (video_should_run | bool) and camera_entity_snapshot != '' }}"
+    then:
       - variables:
-          other_notify_should_send: >
-            {% if not (current_tv_notify | bool) or other_notify_entities|length == 0 %}false
-            {% elif other_notify_min_detection == 'always' %}true
-            {% elif other_notify_min_detection == 'never' %}false
-            {% elif other_notify_min_detection == 'no-person' %}true
-            {% elif other_notify_min_detection == 'probably-person' and detection_rank[verified_detection] >= 1 %}true
-            {% elif other_notify_min_detection == 'definitely-person' and detection_rank[verified_detection] >= 2 %}true
-            {% else %}false{% endif %}
+          _video_result_temp: "probably-person"
 
-      - if:
-          - condition: template
-            value_template: "{{ other_notify_should_send | bool }}"
-          - condition: and
-            conditions: !input other_notify_conditions
-        then:
-          - repeat:
-              count: >
-                {{ other_notify_repeat_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
-              sequence:
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index > 1 }}"
-                  then:
-                    - delay: !input other_notify_repeat_delay
-                - repeat:
-                    for_each: "{{ other_notify_entities }}"
-                    sequence:
-                      - action: "{{ repeat.item }}"
-                        continue_on_error: true
-                        data:
-                          title: "{{ other_notify_title }}"
-                          message: >
-                            {% if video_status == 'success' and video_result %}
-                              {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                            {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
-                            {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
-                            {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
-      
-      # 7) TTS announcement
-      - if:
-          - condition: template
-            value_template: "{{ current_tts_enable | bool }}"
-          - condition: template
-            value_template: "{{ final_interruption_level == 'critical' }}"
-          - condition: template
-            value_template: "{{ tts_media_players|length > 0 }}"
-          - condition: template
-            value_template: "{{ tts_target_entity != none and tts_target_entity|length > 0 }}"
-        then:
-          - repeat:
-              count: "{{ tts_repeat_count }}"
-              sequence:
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index > 1 }}"
-                  then:
-                    - delay: !input tts_repeat_delay
-                - repeat:
-                    for_each: "{{ tts_media_players }}"
-                    sequence:
-                      - action: media_player.volume_set
-                        continue_on_error: true
-                        target:
-                          entity_id: "{{ repeat.item }}"
-                        data:
-                          volume_level: "{{ tts_volume }}"
-                      - action: tts.speak
-                        continue_on_error: true
-                        target:
-                          entity_id: "{{ tts_target_entity }}"
-                        data:
-                          cache: false
-                          media_player_entity_id: "{{ repeat.item }}"
-                          message: >
-                            {% if video_status == 'success' and video_result %}
-                              Achtung! {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
-                            {% elif verified_detection == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
-                            {% elif verified_detection == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
-                            {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
-      
-      # 8) Update push
-      - if:
-          - condition: template
-            value_template: "{{ video_status != 'disabled' }}"
-        then:
-          # Loop Logic: Repeat count > 1 ONLY if level is time-sensitive or higher AND alarm mode is ON
-          - repeat:
-              count: >
-                {{ alarm_repetition_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
-              sequence:
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index > 1 }}"
-                  then:
-                    - delay: !input alarm_repetition_delay
-                - repeat:
-                    for_each: "{{ notify_services_all }}"
-                    sequence:
-                      - action: "notify.{{ repeat.item }}"
-                        continue_on_error: true
-                        data:
-                          title: "{{ camera }} - Update um {{ now().strftime('%H:%M') }}"
-                          message: >
-                            {% if video_status == 'no_response' %}Video-Analyse nicht möglich
-                            {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
-                            {% elif video_result %}{% if verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
-                            {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
-                            {% else %}{{ video_result_map[verified_detection] | default('Bewegung erkannt') }}{% endif %}{% if debug_info_enabled %}
+      # Explicit Type Casting for Integers
+      - delay: 
+          seconds: "{{ video_duration | int + video_lookback | int + 2 }}"
 
-                            (S{{ active_scenario }} | img:{{ detection_level }} → {{ 'vid' if video_status == 'success' else 'img' }}:{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
-                          data:
-                            url: "{{ tap_navigate }}"
-                            clickAction: "{{ tap_navigate }}"
-                            tag: "{{ notification_tag }}"
-                            group: "cams"
-                            attachment:
-                              url: "{{ snapshot_access_file_path }}"
-                              content_type: JPEG
-                            actions: >
-                              {% set actions = [] %}
-                              {% if action1_enabled %}
-                                {% set a = {'action': 'ACTION_1', 'title': action1_title, 'destructive': action1_destructive} %}
-                                {% if action1_uri %}{% set a = a | combine({'uri': action1_uri}) %}{% endif %}
-                                {% if action1_icon %}{% set a = a | combine({'icon': action1_icon}) %}{% endif %}
-                                {% set actions = actions + [a] %}
-                              {% endif %}
-                              {% if action2_enabled %}
-                                {% set a = {'action': 'ACTION_2', 'title': action2_title, 'destructive': action2_destructive} %}
-                                {% if action2_uri %}{% set a = a | combine({'uri': action2_uri}) %}{% endif %}
-                                {% if action2_icon %}{% set a = a | combine({'icon': action2_icon}) %}{% endif %}
-                                {% set actions = actions + [a] %}
-                              {% endif %}
-                              {% if action3_enabled %}
-                                {% set a = {'action': 'ACTION_3', 'title': action3_title, 'destructive': action3_destructive} %}
-                                {% if action3_uri %}{% set a = a | combine({'uri': action3_uri}) %}{% endif %}
-                                {% if action3_icon %}{% set a = a | combine({'icon': action3_icon}) %}{% endif %}
-                                {% set actions = actions + [a] %}
-                              {% endif %}
-                              {% if action4_enabled %}
-                                {% set a = {'action': 'ACTION_4', 'title': action4_title, 'destructive': action4_destructive} %}
-                                {% if action4_uri %}{% set a = a | combine({'uri': action4_uri}) %}{% endif %}
-                                {% if action4_icon %}{% set a = a | combine({'icon': action4_icon}) %}{% endif %}
-                                {% set actions = actions + [a] %}
-                              {% endif %}
-                              {{ actions }}
-                            push:
-                              interruption-level: "{{ final_interruption_level }}"
-                              sound:
-                                name: "{{ notification_sound_critical if final_interruption_level == 'critical' else notification_sound }}"
-                                volume: "{{ notification_volume_critical if final_interruption_level == 'critical' else notification_volume }}"
-                                critical: "{{ final_interruption_level == 'critical' }}"
+      - repeat:
+          while:
+            - condition: template
+              value_template: "{{ _video_result_temp == 'probably-person' and repeat.index <= video_max_retries }}"
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ repeat.index > 1 }}"
+              then:
+                - delay: !input video_retry_delay
+            - action: llmvision.video_analyzer
+              continue_on_error: true
+              data:
+                video_file: "{{ video_file_path }}"
+                provider: !input provider
+                model: !input model
+                message: >
+                  Current time: {{ now().strftime('%H:%M') }}
 
-  # Standard cooldown to ensure clean exit
-  - delay: 
-      seconds: 5
+                  {% if repeat.index > 1 %}IMPORTANT: Avoid "probably-person". Make your best assessment between "definitely-person" and "no-person".
+
+                  {% endif %}{{ video_prompt }}
+                include_filename: true
+                max_frames: "{{ video_max_frames }}"
+                target_width: "{{ video_target_width }}"
+                max_tokens: "{{ video_max_tokens }}"
+                generate_title: "{{ store_in_timeline | bool }}"
+                store_in_timeline: false
+                expose_images: "{{ store_in_timeline | bool }}"
+                response_format: json
+                structure: "{{ detection_structure }}"
+              response_variable: _response
+            - variables:
+                _video_result_temp: >
+                  {% set sr = ((_response | default({})).structured_response | default(none)) %}
+                  {% if sr is mapping and sr.classification is defined %}
+                    {{ sr.classification }}
+                  {% else %}
+                    {% set raw = ((_response | default({})).response_text | default('')) | trim %}
+                    {% if raw and (raw.startswith('{') or raw.startswith('[')) %}
+                      {% set parsed = raw | from_json %}
+                      {% if parsed is mapping and parsed.classification is defined %}
+                        {{ parsed.classification }}
+                      {% else %}
+                        {{ raw }}
+                      {% endif %}
+                    {% else %}
+                      {{ raw }}
+                    {% endif %}
+                  {% endif %}
+                _video_title_temp: "{{ (_response | default({})).title | default('') }}"
+                video_attempts_used: "{{ repeat.index }}"
+      - variables:
+          video_status: >
+            {% if _video_result_temp == '' %}no_response
+            {% elif _video_result_temp == 'probably-person' %}still_unclear
+            {% else %}success{% endif %}
+          video_result: "{{ _video_result_temp }}"
+          verified_detection: >
+            {% if _video_result_temp == 'definitely-person' %}definitely-person
+            {% elif _video_result_temp == 'no-person' %}no-person
+            {% else %}probably-person{% endif %}
+          final_interruption_level: >
+            {% if verified_detection == 'definitely-person' %}{{ current_level_definitely_person }}
+            {% elif verified_detection == 'probably-person' %}{{ current_level_probably_person }}
+            {% else %}{{ current_level_no_person }}{% endif %}
+
+  # 5b) store_in_timeline: Create timeline event after analysis is complete
+  - if:
+      - condition: template
+        value_template: "{{ store_in_timeline | bool }}"
+    then:
+      - action: llmvision.create_event
+        continue_on_error: true
+        data:
+          title: >
+            {% if _video_title_temp | default('') %}
+              {{ _video_title_temp }}
+            {% elif _importance_title_temp | default('') %}
+              {{ _importance_title_temp }}
+            {% else %}
+              Kamera Event
+            {% endif %}
+          description: >
+            {% if video_status | default('disabled') == 'success' and video_result | default('') %}
+              {{ video_result_map[video_result] | default(video_result) }}
+            {% elif detection_level | default('') %}
+              {{ video_result_map[detection_level] | default(detection_level) }}
+            {% else %}
+              Keine Analyse Ergebnisse
+            {% endif %}
+          camera_entity: "{{ camera_entity_snapshot }}"
+          label: >
+            {% if verified_detection in ['definitely-person', 'probably-person'] %}Person
+            {% else %}Camera{% endif %}
+
+  # 6) TV notifications - LG WebOS TV
+  - variables:
+      lg_tv_should_send: >
+        {% if not (current_tv_notify | bool) or not (lg_tv_enable | bool) or lg_tv_notify_services | length == 0 %}false
+        {% elif lg_tv_min_detection == 'always' %}true
+        {% elif lg_tv_min_detection == 'never' %}false
+        {% elif lg_tv_min_detection == 'no-person' %}true
+        {% elif lg_tv_min_detection == 'probably-person' and detection_rank.get(verified_detection, 0) >= 1 %}true
+        {% elif lg_tv_min_detection == 'definitely-person' and detection_rank.get(verified_detection, 0) >= 2 %}true
+        {% else %}false{% endif %}
+
+  - if:
+      - condition: template
+        value_template: "{{ lg_tv_should_send | bool }}"
+      - condition: and
+        conditions: !input lg_tv_conditions
+    then:
+      - repeat:
+          count: >
+            {{ lg_tv_repeat_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ repeat.index > 1 }}"
+              then:
+                - delay: !input lg_tv_repeat_delay
+            - repeat:
+                for_each: "{{ lg_tv_notify_services }}"
+                sequence:
+                  - action: "{{ repeat.item }}"
+                    continue_on_error: true
+                    data:
+                      title: "{{ lg_tv_message_title }}"
+                      message: >
+                        {% if video_status == 'success' and video_result %}
+                          {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                        {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                        {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                        {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+
+  # 6b) TV notifications - Other Notify Services
+  - variables:
+      other_notify_should_send: >
+        {% if not (current_tv_notify | bool) or other_notify_entities|length == 0 %}false
+        {% elif other_notify_min_detection == 'always' %}true
+        {% elif other_notify_min_detection == 'never' %}false
+        {% elif other_notify_min_detection == 'no-person' %}true
+        {% elif other_notify_min_detection == 'probably-person' and detection_rank.get(verified_detection, 0) >= 1 %}true
+        {% elif other_notify_min_detection == 'definitely-person' and detection_rank.get(verified_detection, 0) >= 2 %}true
+        {% else %}false{% endif %}
+
+  - if:
+      - condition: template
+        value_template: "{{ other_notify_should_send | bool }}"
+      - condition: and
+        conditions: !input other_notify_conditions
+    then:
+      - repeat:
+          count: >
+            {{ other_notify_repeat_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ repeat.index > 1 }}"
+              then:
+                - delay: !input other_notify_repeat_delay
+            - repeat:
+                for_each: "{{ other_notify_entities }}"
+                sequence:
+                  - action: "{{ repeat.item }}"
+                    continue_on_error: true
+                    data:
+                      title: "{{ other_notify_title }}"
+                      message: >
+                        {% if video_status == 'success' and video_result %}
+                          {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                        {% elif verified_detection == 'definitely-person' %}{{ camera_friendly }}: Person erkannt
+                        {% elif verified_detection == 'probably-person' %}{{ camera_friendly }}: Möglicherweise Person
+                        {% else %}{{ camera_friendly }}: Bewegung erkannt{% endif %}
+
+  # 7) TTS announcement
+  - if:
+      - condition: template
+        value_template: "{{ current_tts_enable | bool }}"
+      - condition: template
+        value_template: "{{ final_interruption_level == 'critical' }}"
+      - condition: template
+        value_template: "{{ tts_media_players|length > 0 }}"
+      - condition: template
+        value_template: "{{ tts_target_entity != none and tts_target_entity|length > 0 }}"
+    then:
+      - repeat:
+          count: "{{ tts_repeat_count }}"
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ repeat.index > 1 }}"
+              then:
+                - delay: !input tts_repeat_delay
+            - repeat:
+                for_each: "{{ tts_media_players }}"
+                sequence:
+                  - action: media_player.volume_set
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ repeat.item }}"
+                    data:
+                      volume_level: "{{ tts_volume }}"
+                  - action: tts.speak
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ tts_target_entity }}"
+                    data:
+                      cache: false
+                      media_player_entity_id: "{{ repeat.item }}"
+                      message: >
+                        {% if video_status == 'success' and video_result %}
+                          Achtung! {{ camera_friendly }}: {{ video_result_map[video_result] | default(video_result) }}
+                        {% elif verified_detection == 'definitely-person' %}Achtung! {{ camera_friendly }}: Person erkannt
+                        {% elif verified_detection == 'probably-person' %}Achtung! {{ camera_friendly }}: Möglicherweise Person
+                        {% else %}Achtung! {{ camera_friendly }} meldet kritisches Ereignis{% endif %}
+
+  # 8) Update push
+  - if:
+      - condition: template
+        value_template: "{{ video_status != 'disabled' }}"
+    then:
+      # Loop Logic: Repeat count > 1 ONLY if level is time-sensitive or higher AND alarm mode is ON
+      - repeat:
+          count: >
+            {{ alarm_repetition_count if ((current_alarm_mode | bool) and (level_rank[final_interruption_level]|default(0) >= 2)) else 1 }}
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ repeat.index > 1 }}"
+              then:
+                - delay: !input alarm_repetition_delay
+            - repeat:
+                for_each: "{{ notify_services_all }}"
+                sequence:
+                  - action: "notify.{{ repeat.item }}"
+                    continue_on_error: true
+                    data:
+                      title: "{{ camera }} - Update um {{ now().strftime('%H:%M') }}"
+                      message: >
+                        {% if video_status == 'no_response' %}Video-Analyse nicht möglich
+                        {% elif video_status == 'still_unclear' %}Video-Analyse blieb unklar
+                        {% elif video_result %}{% if verified_detection != detection_level %}VERIFIZIERT: {{ video_result_map[video_result] | default(video_result) }}
+                        {% else %}{{ video_result_map[video_result] | default(video_result) }}{% endif %}
+                        {% else %}{{ video_result_map[verified_detection] | default('Bewegung erkannt') }}{% endif %}{% if debug_info_enabled | bool %}
+
+                        (S{{ active_scenario }} | {{ debug_camera_info }} | cd:{{ cooldown.detail }} | img:{{ detection_level }} → {{ 'vid' if video_status == 'success' else 'img' }}:{{ verified_detection }} | {{ final_interruption_level }} | {{ video_attempts_used }}x){% endif %}
+                      data: >
+                        {% set crit = final_interruption_level == 'critical' %}
+                        {{ push_data_base | combine({'push': {
+                             'interruption-level': final_interruption_level,
+                             'sound': {
+                               'name': notification_sound_critical if crit else notification_sound,
+                               'volume': notification_volume_critical if crit else notification_volume,
+                               'critical': crit}}}) }}
